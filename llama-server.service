@@ -1,0 +1,20 @@
+[Unit]
+Description=llama.cpp API Server (Qwen3.5-35B-A3B)
+After=network.target
+
+[Service]
+Type=simple
+User=tanker
+WorkingDirectory=/home/tanker/projects/temp
+ExecStart=/home/tanker/projects/temp/llama.cpp/build/bin/llama-server \
+    --model /home/tanker/projects/temp/models/Qwen3.5-35B-A3B-Q4_K_M.gguf \
+    --host 0.0.0.0 \
+    --port 5000 \
+    --n-gpu-layers 99 \
+    --ctx-size 8192 \
+    --flash-attn on
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
