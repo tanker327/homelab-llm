@@ -28,6 +28,6 @@ pkill -f llama-server       # Stop the server
 
 - The build targets **SM89** (Ada Lovelace / RTX 4090). Change `-DCMAKE_CUDA_ARCHITECTURES=89` in setup.sh for other GPUs.
 - Server listens on `0.0.0.0:5000`. Firewall rule allows access from `192.168.10.0/24`.
-- Model uses ~22GB VRAM with 8192 context. Reduce `--ctx-size` in start-llama.sh if VRAM is tight.
+- Model uses ~23.5GB VRAM with 96K context. Max tested is 112K (OOM at 128K). Reduce `--ctx-size` in start-llama.sh if VRAM is tight.
 - Ollama service was disabled (`systemctl disable ollama`) to avoid VRAM conflicts.
 - The `hf` CLI (not `huggingface-cli`) is used for downloads in newer huggingface-hub versions.

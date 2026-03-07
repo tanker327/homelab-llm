@@ -396,7 +396,7 @@ curl http://localhost:5000/v1/chat/completions \
 
 2. **Token counts include thinking** — `usage.completion_tokens` includes both `reasoning_content` and `content` tokens. Actual visible response is shorter than the token count suggests.
 
-3. **Context window** — Server is configured with 8192 tokens. Long conversations will be truncated. The model supports up to 262144 tokens in theory, but VRAM limits practical context to ~8K-16K.
+3. **Context window** — Server is configured with 96K tokens (98,304). The model supports up to 262K tokens in theory, but VRAM limits practical max to 112K on a 24GB RTX 4090.
 
 4. **Single model** — Only one model is loaded at a time. The `model` field in requests is accepted but ignored (the loaded model always responds).
 

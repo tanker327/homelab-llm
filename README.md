@@ -8,8 +8,9 @@ Run Qwen3.5-35B-A3B locally on an RTX 4090 via llama.cpp with an OpenAI-compatib
 |---|---|
 | Generation speed | ~167 tok/s |
 | Prompt processing | ~700 tok/s |
-| VRAM usage | ~22 GB |
-| Context window | 8192 tokens |
+| VRAM usage | ~23.5 GB |
+| Context window | 96K tokens (98,304) |
+| Max tested context | 112K tokens (OOM at 128K) |
 
 ## Quick Start
 
