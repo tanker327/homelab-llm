@@ -51,6 +51,27 @@ response = client.chat.completions.create(
 
 Network access: http://192.168.10.124:5000 (firewall rule added by setup.sh)
 
+## Production Service (systemd)
+
+Install and enable:
+```bash
+sudo cp llama-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable llama-server
+sudo systemctl start llama-server
+```
+
+Manage:
+```bash
+sudo systemctl start llama-server     # Start
+sudo systemctl stop llama-server      # Stop
+sudo systemctl restart llama-server   # Restart
+sudo systemctl status llama-server    # Check status
+journalctl -u llama-server -f         # View live logs
+```
+
+The service auto-starts on boot and auto-restarts on crash (5s delay).
+
 ## Requirements
 
 - NVIDIA GPU with 24GB VRAM (RTX 4090)
