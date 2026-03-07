@@ -11,4 +11,5 @@ exec "$DIR/llama.cpp/build/bin/llama-server" \
   --port 5000 \
   --n-gpu-layers 99 \
   --ctx-size 8192 \
-  --flash-attn on
+  --flash-attn on \
+  --reasoning-format deepseek
