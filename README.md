@@ -6,11 +6,20 @@ Run Qwen3.5-35B-A3B locally on an RTX 4090 via llama.cpp with an OpenAI-compatib
 
 | Metric | Value |
 |---|---|
-| Generation speed | ~167 tok/s |
-| Prompt processing | ~700 tok/s |
+| Generation speed | ~169 tok/s |
+| Prompt processing | ~849 tok/s |
 | VRAM usage | ~23.5 GB |
 | Context window | 96K tokens (98,304) |
 | Max tested context | 112K tokens (OOM at 128K) |
+
+### Model Comparison (RTX 4090, Q4_K_M, llama.cpp)
+
+| Model | Gen speed | Prompt speed | VRAM | Context |
+|---|---|---|---|---|
+| **Qwen3.5-35B-A3B** (MoE, 3B active) | **169 tok/s** | 849 tok/s | ~23.5 GB | 96K |
+| **Qwen3.5-9B** (dense) | 125 tok/s | 1,260 tok/s | ~6 GB | 128K+ |
+
+The 35B MoE model is 35% faster at generation despite being larger, since only 3B parameters are active per token. The 9B model wins on prompt processing and VRAM usage.
 
 ## Quick Start
 
