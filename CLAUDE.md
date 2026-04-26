@@ -10,10 +10,14 @@ Local LLM inference server running **Qwen3.5-35B-A3B** (MoE: 35B total, 3B activ
 
 ```bash
 ./setup.sh                  # Full setup: build llama.cpp, download model, install deps (idempotent)
-./start-llama.sh            # Start the API server on port 5000
+./start-llama.sh            # Start the API server on port 5000 (35B MoE model)
+./start-llama-9b.sh         # Alternative: start with the dense 9B model (128K ctx, ~6GB VRAM)
+./start-llama-27b.sh        # Alternative: start with the dense 27B model (Qwen3.6, 96K ctx, ~23GB VRAM)
 ./venv/bin/python chat.py   # Interactive CLI chat client (commands: quit, clear)
 pkill -f llama-server       # Stop the server
 ```
+
+Only one server can run at a time (both bind port 5000); stop the running one before switching models.
 
 ### Systemd Service (production)
 
@@ -30,7 +34,7 @@ journalctl -u llama-server -f         # Live logs
 - **models/** (git-ignored): Contains `Qwen3.5-35B-A3B-Q4_K_M.gguf` (20.5GB, Q4_K_M from `unsloth/Qwen3.5-35B-A3B-GGUF`).
 - **venv/** (git-ignored): Python 3.12 venv with `openai` and `huggingface-hub` packages.
 - **chat.py**: Streaming multi-turn chat client using OpenAI SDK against localhost:5000.
-- **start-llama.sh**: Launches llama-server with `--reasoning-format deepseek` for thinking mode support.
+- **start-llama.sh** / **start-llama-9b.sh** / **start-llama-27b.sh**: Launch llama-server with `--reasoning-format deepseek` for thinking mode support. The 9B variant uses a 128K context and ~6GB VRAM. The 27B variant is dense Qwen3.6 (Q4_K_M, 16.8GB on disk) — slower per-token than the 35B MoE since all params activate per token.
 - **llama-server.service**: Systemd unit file for production deployment (auto-restart on crash).
 - **API.md**: Full API documentation with endpoint details, streaming format, and client examples.
 - **benchmark.py** / **bench_separate.py** (git-ignored): Benchmark scripts comparing llama.cpp vs Ollama performance.
