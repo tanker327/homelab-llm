@@ -2,6 +2,7 @@ llama.cpp/
 models/
 venv/
 vllm-venv/
+sglang-venv/
 tabbyAPI/
 __pycache__/
 *.pyc

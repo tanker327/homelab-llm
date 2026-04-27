@@ -1,19 +1,12 @@
 [Unit]
-Description=llama.cpp API Server (Qwen3.6-27B)
+Description=llama.cpp API Server (Qwen3.6-35B-A3B MXFP4 MoE)
 After=network.target
 
 [Service]
 Type=simple
 User=tanker
 WorkingDirectory=/home/tanker/projects/temp
-ExecStart=/home/tanker/projects/temp/llama.cpp/build/bin/llama-server \
-    --model /home/tanker/projects/temp/models/Qwen3.6-27B-Q4_K_M.gguf \
-    --host 0.0.0.0 \
-    --port 5000 \
-    --n-gpu-layers 99 \
-    --ctx-size 98304 \
-    --flash-attn on \
-    --reasoning-format deepseek
+ExecStart=/home/tanker/projects/temp/start-llama-35b-moe.sh
 Restart=on-failure
 RestartSec=5
 
