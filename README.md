@@ -1,19 +1,33 @@
 # Qwen3.6-35B-A3B Local LLM Server
 
-Run Qwen3.6-35B-A3B locally on an RTX 4090 via llama.cpp with an OpenAI-compatible API. Tuned for concurrent serving — 8 simultaneous requests at ~300 tok/s aggregate.
+Run Qwen3.6-35B-A3B locally on an RTX 4090 via llama.cpp with an OpenAI-compatible API. Default config is tuned for **single-user max context** — the full 96K window is available per request.
 
 ## Performance
 
 | Metric | Value |
 |---|---|
 | Single-request generation | ~163 tok/s |
-| Aggregate @ 8 concurrent | ~300 tok/s |
 | Prompt processing (1K tokens) | ~5,500 tok/s |
-| VRAM usage | ~23.5 GB |
+| VRAM usage | ~23.2 GB |
 | Total context window | 96K tokens (98,304) |
-| Per-slot context (`--parallel 8`) | 12K tokens |
+| Per-request context (`--parallel 1`) | 96K tokens |
 
-See [docs/CONCURRENCY.md](./docs/CONCURRENCY.md) for the throughput curve across `--parallel 4 / 8 / 10` at 1–10 concurrent requests.
+## Context Window vs Concurrency
+
+llama.cpp's `--ctx-size` is the **total** KV cache, divided across `--parallel` slots. The default `--parallel 1` gives one user the full 96K. Switch to higher `--parallel` if you need to serve concurrent requests, at the cost of per-request context:
+
+| `--parallel` | Per-request context | Concurrent requests | Use case |
+|---|---|---|---|
+| **1 (default)** | **96K** | 1 (rest queue) | Solo use, long docs/code/chats |
+| 2 | 48K | 2 | You + a background agent |
+| 4 | 24K | 4 | Small team / multi-agent |
+| 8 | 12K | 8 | Max throughput @ ~300 tok/s aggregate |
+
+To change, edit `--parallel` in `scripts/start-llama-35b-moe.sh` and restart the service. See [docs/CONCURRENCY.md](./docs/CONCURRENCY.md) for the throughput curve across `--parallel 4 / 8 / 10`.
+
+### Going beyond 96K
+
+VRAM is the bottleneck on a 24GB 4090 — the model alone is ~21.7 GB. To push context higher you'd need to free KV-cache memory, e.g. add `--cache-type-k q8_0 --cache-type-v q8_0` (roughly halves KV memory) and bump `--ctx-size` toward the model's 262K native max. YaRN extends the model to ~1M but requires KV quantization to fit.
 
 ### Model Comparison (RTX 4090, llama.cpp)
 
