@@ -2,7 +2,7 @@
 
 How many simultaneous requests llama.cpp can serve, and how `--parallel` affects throughput vs. per-request speed on this machine (RTX 4090, 24 GB).
 
-Current setting: `start-llama-35b-moe.sh` passes `--parallel 8`.
+Current setting: `scripts/start-llama-35b-moe.sh` passes `--parallel 8`.
 
 ## TL;DR
 
@@ -19,16 +19,16 @@ Current setting: `start-llama-35b-moe.sh` passes `--parallel 8`.
 Server must be running. The script fires N requests in parallel and reports aggregate and per-request tok/s.
 
 ```bash
-./venv/bin/python bench_concurrency.py
+./venv/bin/python benchmarks/bench_concurrency.py
 ```
 
 Concurrency levels tested: 1, 2, 4, 6, 8, 10. Prompt is `/no_think` + a fixed-length task ("list 1..200") so every request produces ~3.4 K tokens with low variance.
 
 To bench a different `--parallel` value:
 
-1. Edit `start-llama-35b-moe.sh` (`--parallel N`).
+1. Edit `scripts/start-llama-35b-moe.sh` (`--parallel N`).
 2. `sudo systemctl restart llama-server`.
-3. Re-run `bench_concurrency.py`.
+3. Re-run `benchmarks/bench_concurrency.py`.
 
 ## Results (Qwen3.6-35B-A3B-MXFP4_MOE, RTX 4090)
 

@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=tanker
 WorkingDirectory=/home/tanker/projects/temp
-ExecStart=/home/tanker/projects/temp/start-llama-35b-moe.sh
+ExecStart=/home/tanker/projects/temp/scripts/start-llama-35b-moe.sh
 Restart=on-failure
 RestartSec=5
 

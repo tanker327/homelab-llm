@@ -6,5 +6,5 @@ sglang-venv/
 tabbyAPI/
 __pycache__/
 *.pyc
-bench_separate.py
-benchmark.py
+benchmarks/bench_separate.py
+benchmarks/benchmark.py

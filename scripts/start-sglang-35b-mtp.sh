@@ -3,7 +3,7 @@
 # API: http://0.0.0.0:5000/v1/chat/completions
 # Web UI: http://localhost:5000
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 export SGLANG_ENABLE_SPEC_V2=1
 export CUDA_HOME=/usr/local/cuda-12.8

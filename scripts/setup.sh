@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
 echo "=== llama.cpp + Qwen3.5-35B-A3B Setup ==="
@@ -64,7 +64,7 @@ fi
 echo ""
 echo "=== Setup complete ==="
 echo ""
-echo "Start server:  ./start-llama.sh"
-echo "Chat:          ./venv/bin/python chat.py"
+echo "Start server:  ./scripts/start-llama-35b-moe.sh"
+echo "Chat:          ./venv/bin/python clients/chat.py"
 echo "Web UI:        http://localhost:5000"
 echo "API:           http://localhost:5000/v1/chat/completions"

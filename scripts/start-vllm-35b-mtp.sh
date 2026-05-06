@@ -3,7 +3,7 @@
 # API: http://0.0.0.0:5000/v1/chat/completions
 # Web UI: http://localhost:5000
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 exec "$DIR/vllm-venv/bin/vllm" serve \
   "$DIR/models/Qwen3.6-35B-A3B-GPTQ-Int4" \

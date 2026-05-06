@@ -4,20 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local LLM inference server on an RTX 4090 (24GB VRAM), exposing an OpenAI-compatible API on port 5000. The systemd default is **llama.cpp** serving `Qwen3.6-35B-A3B-MXFP4_MOE.gguf` (via `start-llama-35b-moe.sh`). vLLM and SGLang launchers are kept on disk as alternatives that can run the GPTQ-Int4 weights with MTP speculative decoding.
+Local LLM inference server on an RTX 4090 (24GB VRAM), exposing an OpenAI-compatible API on port 5000. The systemd default is **llama.cpp** serving `Qwen3.6-35B-A3B-MXFP4_MOE.gguf` (via `scripts/start-llama-35b-moe.sh`). vLLM and SGLang launchers are kept on disk as alternatives that can run the GPTQ-Int4 weights with MTP speculative decoding.
+
+## Layout
+
+- `scripts/` — launchers (`setup.sh`, `start-*.sh`)
+- `systemd/` — `llama-server.service`
+- `clients/` — `chat.py`
+- `benchmarks/` — `bench_concurrency.py` (and gitignored `benchmark.py`, `bench_separate.py`)
+- `tools/` — `probe_max_input.py`, `test_ctx*.py`
+- `docs/` — `API.md`, `CONCURRENCY.md`
+- `llama.cpp/`, `models/`, `venv/`, `vllm-venv/`, `sglang-venv/` — git-ignored, stay at repo root
 
 ## Key Commands
 
 ```bash
-./setup.sh                       # Full setup: build llama.cpp, download model, install deps (idempotent)
-./start-llama-35b-moe.sh         # Systemd default: llama.cpp + Qwen3.6-35B-A3B MXFP4_MOE (MoE, 96K ctx)
-./start-vllm-35b-mtp.sh          # Alt: vLLM + Qwen3.6-35B-A3B GPTQ-Int4 + MTP n=5
-./start-sglang-35b-mtp.sh        # Alt: SGLang + Qwen3.6-35B-A3B GPTQ-Int4 + NEXTN n=5
-./start-llama.sh                 # Alt: llama.cpp + Qwen3.5-35B-A3B Q4_K_M (legacy MoE)
-./start-llama-9b.sh              # Alt: llama.cpp + dense 9B (128K ctx, ~6GB VRAM)
-./start-llama-27b.sh             # Alt: llama.cpp + dense Qwen3.6-27B Q4_K_M (96K ctx, ~23GB VRAM)
-./venv/bin/python chat.py        # Interactive CLI chat client (commands: quit, clear)
-sudo systemctl stop llama-server # Stop the production service before running a manual launcher
+./scripts/setup.sh                       # Full setup: build llama.cpp, download model, install deps (idempotent)
+./scripts/start-llama-35b-moe.sh         # Systemd default: llama.cpp + Qwen3.6-35B-A3B MXFP4_MOE (MoE, 96K ctx)
+./scripts/start-vllm-35b-mtp.sh          # Alt: vLLM + Qwen3.6-35B-A3B GPTQ-Int4 + MTP n=5
+./scripts/start-sglang-35b-mtp.sh        # Alt: SGLang + Qwen3.6-35B-A3B GPTQ-Int4 + NEXTN n=5
+./scripts/start-llama.sh                 # Alt: llama.cpp + Qwen3.5-35B-A3B Q4_K_M (legacy MoE)
+./scripts/start-llama-9b.sh              # Alt: llama.cpp + dense 9B (128K ctx, ~6GB VRAM)
+./scripts/start-llama-27b.sh             # Alt: llama.cpp + dense Qwen3.6-27B Q4_K_M (96K ctx, ~23GB VRAM)
+./venv/bin/python clients/chat.py        # Interactive CLI chat client (commands: quit, clear)
+sudo systemctl stop llama-server         # Stop the production service before running a manual launcher
 ```
 
 Only one engine can run at a time (all bind port 5000); stop the running one before switching.
@@ -25,13 +35,13 @@ Only one engine can run at a time (all bind port 5000); stop the running one bef
 ### Systemd Service (production)
 
 ```bash
-sudo cp llama-server.service /etc/systemd/system/
+sudo cp systemd/llama-server.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now llama-server
 sudo systemctl status llama-server    # Check status
 journalctl -u llama-server -f         # Live logs
 ```
 
-`llama-server.service`'s `ExecStart` points at `start-llama-35b-moe.sh`. To switch the production engine, edit the unit (or change the symlink target) and `daemon-reload`.
+`systemd/llama-server.service`'s `ExecStart` points at `scripts/start-llama-35b-moe.sh`. To switch the production engine, edit the unit (or change the symlink target) and `daemon-reload`.
 
 ## Architecture
 
@@ -41,15 +51,15 @@ journalctl -u llama-server -f         # Live logs
 - **models/** (git-ignored): GGUF files for llama.cpp (`Qwen3.6-35B-A3B-MXFP4_MOE.gguf`, `Qwen3.5-35B-A3B-Q4_K_M.gguf`, `Qwen3.6-27B-Q4_K_M.gguf`, `Qwen3.5-9B-Q4_K_M.gguf`) and the GPTQ safetensors directory `Qwen3.6-35B-A3B-GPTQ-Int4/` (~22.74GB) shared by vLLM and SGLang.
 - **venv/** (git-ignored): Python 3.12 venv with `openai`, `huggingface-hub` (provides `hf` CLI for downloads). Used by `chat.py` and the model downloader in `setup.sh`.
 - **chat.py**: Streaming multi-turn chat client using OpenAI SDK against localhost:5000 (works against any engine — they all expose the same API shape).
-- **start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF (`--n-gpu-layers 99 --ctx-size 98304 --parallel 8 --flash-attn on --reasoning-format deepseek`). This is what the systemd unit runs. `--parallel 8` is tuned — see `CONCURRENCY.md`.
-- **start-vllm-35b-mtp.sh**: vLLM launcher with `--quantization gptq`, `--reasoning-parser qwen3` (≡ llama.cpp's deepseek format — populates the same `reasoning_content` field), `--speculative-config '{"method": "mtp", "num_speculative_tokens": 5}'` for MTP n=5, and `--cpu-offload-gb 4` because GPTQ weights are tight on a 24GB GPU.
-- **start-sglang-35b-mtp.sh**: SGLang launcher with `--quantization gptq_marlin`, `--reasoning-parser qwen3`, and the NEXTN speculative algorithm (`--speculative-algorithm NEXTN --speculative-num-steps 5 --speculative-eagle-topk 1 --speculative-num-draft-tokens 6`). Sets `SGLANG_ENABLE_SPEC_V2=1` and pins CUDA 12.8 + g++-14.
-- **start-llama.sh** / **start-llama-9b.sh** / **start-llama-27b.sh**: llama.cpp launchers using `--reasoning-format deepseek`. The 9B variant uses 128K context / ~6GB VRAM. The 27B is dense Qwen3.6 — slower than the MoE since all params activate per token.
-- **llama-server.service**: Systemd unit (kept under the historical name even though `ExecStart` is now `start-llama-35b-moe.sh`). Auto-restart on crash.
-- **API.md**: Full API documentation with endpoint details, streaming format, and client examples.
-- **CONCURRENCY.md**: Concurrency / `--parallel` tuning results and recommendation.
-- **benchmark.py** / **bench_separate.py** (git-ignored): Benchmark scripts.
-- **bench_concurrency.py**: Fires N parallel requests and reports aggregate + per-request tok/s. Used to pick `--parallel`.
+- **scripts/start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF (`--n-gpu-layers 99 --ctx-size 98304 --parallel 8 --flash-attn on --reasoning-format deepseek`). This is what the systemd unit runs. `--parallel 8` is tuned — see `docs/CONCURRENCY.md`.
+- **scripts/start-vllm-35b-mtp.sh**: vLLM launcher with `--quantization gptq`, `--reasoning-parser qwen3` (≡ llama.cpp's deepseek format — populates the same `reasoning_content` field), `--speculative-config '{"method": "mtp", "num_speculative_tokens": 5}'` for MTP n=5, and `--cpu-offload-gb 4` because GPTQ weights are tight on a 24GB GPU.
+- **scripts/start-sglang-35b-mtp.sh**: SGLang launcher with `--quantization gptq_marlin`, `--reasoning-parser qwen3`, and the NEXTN speculative algorithm (`--speculative-algorithm NEXTN --speculative-num-steps 5 --speculative-eagle-topk 1 --speculative-num-draft-tokens 6`). Sets `SGLANG_ENABLE_SPEC_V2=1` and pins CUDA 12.8 + g++-14.
+- **scripts/start-llama.sh** / **scripts/start-llama-9b.sh** / **scripts/start-llama-27b.sh**: llama.cpp launchers using `--reasoning-format deepseek`. The 9B variant uses 128K context / ~6GB VRAM. The 27B is dense Qwen3.6 — slower than the MoE since all params activate per token.
+- **systemd/llama-server.service**: Systemd unit (kept under the historical name even though `ExecStart` is now `scripts/start-llama-35b-moe.sh`). Auto-restart on crash.
+- **docs/API.md**: Full API documentation with endpoint details, streaming format, and client examples.
+- **docs/CONCURRENCY.md**: Concurrency / `--parallel` tuning results and recommendation.
+- **benchmarks/benchmark.py** / **benchmarks/bench_separate.py** (git-ignored): Benchmark scripts.
+- **benchmarks/bench_concurrency.py**: Fires N parallel requests and reports aggregate + per-request tok/s. Used to pick `--parallel`.
 
 ## Important Details
 
