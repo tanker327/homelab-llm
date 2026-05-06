@@ -41,13 +41,15 @@ journalctl -u llama-server -f         # Live logs
 - **models/** (git-ignored): GGUF files for llama.cpp (`Qwen3.6-35B-A3B-MXFP4_MOE.gguf`, `Qwen3.5-35B-A3B-Q4_K_M.gguf`, `Qwen3.6-27B-Q4_K_M.gguf`, `Qwen3.5-9B-Q4_K_M.gguf`) and the GPTQ safetensors directory `Qwen3.6-35B-A3B-GPTQ-Int4/` (~22.74GB) shared by vLLM and SGLang.
 - **venv/** (git-ignored): Python 3.12 venv with `openai`, `huggingface-hub` (provides `hf` CLI for downloads). Used by `chat.py` and the model downloader in `setup.sh`.
 - **chat.py**: Streaming multi-turn chat client using OpenAI SDK against localhost:5000 (works against any engine — they all expose the same API shape).
-- **start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF (`--n-gpu-layers 99 --ctx-size 98304 --flash-attn on --reasoning-format deepseek`). This is what the systemd unit runs.
+- **start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF (`--n-gpu-layers 99 --ctx-size 98304 --parallel 8 --flash-attn on --reasoning-format deepseek`). This is what the systemd unit runs. `--parallel 8` is tuned — see `CONCURRENCY.md`.
 - **start-vllm-35b-mtp.sh**: vLLM launcher with `--quantization gptq`, `--reasoning-parser qwen3` (≡ llama.cpp's deepseek format — populates the same `reasoning_content` field), `--speculative-config '{"method": "mtp", "num_speculative_tokens": 5}'` for MTP n=5, and `--cpu-offload-gb 4` because GPTQ weights are tight on a 24GB GPU.
 - **start-sglang-35b-mtp.sh**: SGLang launcher with `--quantization gptq_marlin`, `--reasoning-parser qwen3`, and the NEXTN speculative algorithm (`--speculative-algorithm NEXTN --speculative-num-steps 5 --speculative-eagle-topk 1 --speculative-num-draft-tokens 6`). Sets `SGLANG_ENABLE_SPEC_V2=1` and pins CUDA 12.8 + g++-14.
 - **start-llama.sh** / **start-llama-9b.sh** / **start-llama-27b.sh**: llama.cpp launchers using `--reasoning-format deepseek`. The 9B variant uses 128K context / ~6GB VRAM. The 27B is dense Qwen3.6 — slower than the MoE since all params activate per token.
 - **llama-server.service**: Systemd unit (kept under the historical name even though `ExecStart` is now `start-llama-35b-moe.sh`). Auto-restart on crash.
 - **API.md**: Full API documentation with endpoint details, streaming format, and client examples.
+- **CONCURRENCY.md**: Concurrency / `--parallel` tuning results and recommendation.
 - **benchmark.py** / **bench_separate.py** (git-ignored): Benchmark scripts.
+- **bench_concurrency.py**: Fires N parallel requests and reports aggregate + per-request tok/s. Used to pick `--parallel`.
 
 ## Important Details
 
