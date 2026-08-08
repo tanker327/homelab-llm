@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=tanker
-WorkingDirectory=/home/tanker/projects/temp
-ExecStart=/home/tanker/projects/temp/scripts/start-llama-35b-moe.sh
+WorkingDirectory=/home/tanker/projects/work/homelab-llm
+ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-llama-35b-moe.sh
 Restart=on-failure
 RestartSec=5
 
