@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local LLM inference server on an RTX 4090 (24GB VRAM), exposing an OpenAI-compatible API on port 5000. The systemd default is **llama.cpp** serving `Qwen3.6-35B-A3B-MXFP4_MOE.gguf` (via `scripts/start-llama-35b-moe.sh`). vLLM and SGLang launchers are kept on disk as alternatives that can run the GPTQ-Int4 weights with MTP speculative decoding.
+Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM; originally built for an RTX 4090 — comments in the launchers note the old 24GB settings), exposing an OpenAI-compatible API on port 5000. The systemd default is **llama.cpp** serving `Qwen3.6-35B-A3B-MTP-MXFP4_MOE.gguf` with MTP speculative decoding (via `scripts/start-llama-35b-moe.sh`, ~418 tok/s). `scripts/start-llama-27b.sh` runs the higher-quality dense Qwen3.6-27B at Q8_0 + MTP (~139 tok/s). vLLM and SGLang launchers are kept on disk as alternatives (still carrying 4090-era memory workarounds).
 
 ## Layout
 
@@ -20,12 +20,12 @@ Local LLM inference server on an RTX 4090 (24GB VRAM), exposing an OpenAI-compat
 
 ```bash
 ./scripts/setup.sh                       # Full setup: build llama.cpp, download model, install deps (idempotent)
-./scripts/start-llama-35b-moe.sh         # Systemd default: llama.cpp + Qwen3.6-35B-A3B MXFP4_MOE (MoE, 96K ctx)
+./scripts/start-llama-35b-moe.sh         # Systemd default: llama.cpp + Qwen3.6-35B-A3B MTP MXFP4_MOE (MoE, 262K ctx/slot, ~418 tok/s)
 ./scripts/start-vllm-35b-mtp.sh          # Alt: vLLM + Qwen3.6-35B-A3B GPTQ-Int4 + MTP n=5
 ./scripts/start-sglang-35b-mtp.sh        # Alt: SGLang + Qwen3.6-35B-A3B GPTQ-Int4 + NEXTN n=5
 ./scripts/start-llama.sh                 # Alt: llama.cpp + Qwen3.5-35B-A3B Q4_K_M (legacy MoE)
 ./scripts/start-llama-9b.sh              # Alt: llama.cpp + dense 9B (128K ctx, ~6GB VRAM)
-./scripts/start-llama-27b.sh             # Alt: llama.cpp + dense Qwen3.6-27B Q4_K_M (96K ctx, ~23GB VRAM)
+./scripts/start-llama-27b.sh             # Alt (best quality): llama.cpp + dense Qwen3.6-27B Q8_0 MTP (262K ctx/slot, ~64GB VRAM, ~139 tok/s)
 ./venv/bin/python clients/chat.py        # Interactive CLI chat client (commands: quit, clear)
 sudo systemctl stop llama-server         # Stop the production service before running a manual launcher
 ```
@@ -67,7 +67,7 @@ journalctl -u llama-server -f         # Live logs
 - **Speculative decoding (n=5) is engine-specific**:
   - vLLM: `--speculative-config '{"method": "mtp", "num_speculative_tokens": 5}'` (native MTP).
   - SGLang: `--speculative-algorithm NEXTN --speculative-num-steps 5` (also requires `SGLANG_ENABLE_SPEC_V2=1`).
-  - llama.cpp does **not** support native MTP — only generic draft-model speculative decoding via `--model-draft`. The systemd default runs without speculation.
+  - llama.cpp: native MTP self-speculation since May 2026 (`--spec-type draft-mtp --spec-draft-n-max N`). Requires an MTP GGUF (contains the MTP head). The systemd default uses it; measured on the RTX PRO 6000: 35B MoE 260→418 tok/s, 27B dense 139 tok/s at Q8_0. `--spec-draft-n-max 3` beat 2 for both models on this GPU.
   - If the model's MTP module supports fewer than 5 heads, vLLM silently clamps; check logs for the actual acceptance rate.
 - **`max_tokens` is broken on llama.cpp's `/v1/chat/completions`** (truncating mid-reasoning causes 500 errors). Omit it or use `stop` sequences. vLLM and SGLang do not have this bug.
 - **VRAM is tight under vLLM/SGLang.** GPTQ weights are ~22.7GB. The vLLM launcher uses `--gpu-memory-utilization 0.93` and `--cpu-offload-gb 4`; SGLang uses `--mem-fraction-static 0.92`. If startup OOMs, raise the offload knob or reduce `--max-model-len` / `--context-length` (currently 32768, well below the model's 262K native limit, traded for KV cache room).
