@@ -1,12 +1,12 @@
 [Unit]
-Description=llama.cpp API Server (Qwen3.6-35B-A3B MXFP4 MoE)
+Description=llama.cpp API Server (Qwen3.6-27B Q8_0 MTP)
 After=network.target
 
 [Service]
 Type=simple
 User=tanker
 WorkingDirectory=/home/tanker/projects/work/homelab-llm
-ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-llama-35b-moe.sh
+ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-llama-27b.sh
 Restart=on-failure
 RestartSec=5
 
