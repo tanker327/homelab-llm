@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM; originally built for an RTX 4090 — comments in the launchers note the old 24GB settings), exposing an OpenAI-compatible API on port 5000. The systemd default is **llama.cpp** serving `Qwen3.6-35B-A3B-MTP-MXFP4_MOE.gguf` with MTP speculative decoding (via `scripts/start-llama-35b-moe.sh`, ~418 tok/s). `scripts/start-llama-27b.sh` runs the higher-quality dense Qwen3.6-27B at Q8_0 + MTP (~139 tok/s). vLLM and SGLang launchers are kept on disk as alternatives (still carrying 4090-era memory workarounds).
+Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM; originally built for an RTX 4090 — comments in the launchers note the old 24GB settings), exposing an OpenAI-compatible API. The systemd default is the **agent stack** (`scripts/start-agent-stack.sh`): both Qwen3.6 models resident at once (~77GB) — `Qwen3.6-35B-A3B` MoE workers on port 5000 (~418 tok/s, 3 slots × 128K ctx) and dense `Qwen3.6-27B` Q8_0 planner/judge on port 5001 (~139 tok/s, 2 slots × 128K ctx), both with MTP speculative decoding. Single-model launchers (`start-llama-35b-moe.sh`, `start-llama-27b.sh` with full 262K ctx/slot) remain for manual use; vLLM and SGLang launchers are kept on disk as alternatives (still carrying 4090-era memory workarounds). System-level changes (systemd, firewall, host config) are tracked in `CHANGELOG.md`.
 
 ## Layout
 
@@ -13,21 +13,22 @@ Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM; originally b
 - `clients/` — `chat.py`
 - `benchmarks/` — `bench_concurrency.py` (and gitignored `benchmark.py`, `bench_separate.py`)
 - `tools/` — `probe_max_input.py`, `test_ctx*.py`
-- `docs/` — `API.md`, `CONCURRENCY.md`
+- `docs/` — `API.md`, `CONCURRENCY.md`, `BENCHMARKS.md`
+- `CHANGELOG.md` — system-level change record (systemd, firewall, host config)
 - `llama.cpp/`, `models/`, `venv/`, `vllm-venv/`, `sglang-venv/` — git-ignored, stay at repo root
 
 ## Key Commands
 
 ```bash
 ./scripts/setup.sh                       # Full setup: build llama.cpp, download model, install deps (idempotent)
-./scripts/start-llama-35b-moe.sh         # Systemd default: llama.cpp + Qwen3.6-35B-A3B MTP MXFP4_MOE (MoE, 262K ctx/slot, ~418 tok/s)
+./scripts/start-agent-stack.sh           # Systemd default: both models (~77GB): 35B workers on 5000, 27B planner/judge on 5001
+./scripts/start-llama-35b-moe.sh         # Alt: llama.cpp + Qwen3.6-35B-A3B MTP MXFP4_MOE alone (MoE, 262K ctx/slot, ~418 tok/s)
 ./scripts/start-vllm-35b-mtp.sh          # Alt: vLLM + Qwen3.6-35B-A3B GPTQ-Int4 + MTP n=5
 ./scripts/start-sglang-35b-mtp.sh        # Alt: SGLang + Qwen3.6-35B-A3B GPTQ-Int4 + NEXTN n=5
 ./scripts/start-llama.sh                 # Alt: llama.cpp + Qwen3.5-35B-A3B Q4_K_M (legacy MoE)
 ./scripts/start-llama-9b.sh              # Alt: llama.cpp + dense 9B (128K ctx, ~6GB VRAM)
 ./scripts/start-llama-27b.sh             # Alt (best quality): llama.cpp + dense Qwen3.6-27B Q8_0 MTP (262K ctx/slot, ~64GB VRAM, ~139 tok/s)
 ./venv/bin/python clients/chat.py        # Interactive CLI chat client (commands: quit, clear)
-./scripts/start-agent-stack.sh           # Both models at once (~77GB): 35B workers on 5000, 27B planner/judge on 5001
 ./venv/bin/python clients/orchestrate.py "task"  # Plan (27B) -> 3 parallel workers (35B) -> judge (27B); --mode bestof, --workers N
 sudo systemctl stop llama-server         # Stop the production service before running a manual launcher
 ```
@@ -43,7 +44,7 @@ sudo systemctl status llama-server    # Check status
 journalctl -u llama-server -f         # Live logs
 ```
 
-`systemd/llama-server.service`'s `ExecStart` points at `scripts/start-llama-35b-moe.sh`. To switch the production engine, edit the unit (or change the symlink target) and `daemon-reload`.
+`systemd/llama-server.service`'s `ExecStart` points at `scripts/start-agent-stack.sh` (installed and enabled on the RTX PRO 6000 box since 2026-08-09). To switch the production engine, edit the unit, re-copy it, and `daemon-reload`. When restarting manually, leave ~10s between stop and start — the old process must release VRAM before the new one allocates its KV cache, or it OOMs.
 
 ## Architecture
 
@@ -53,11 +54,12 @@ journalctl -u llama-server -f         # Live logs
 - **models/** (git-ignored): GGUF files for llama.cpp (`Qwen3.6-35B-A3B-MXFP4_MOE.gguf`, `Qwen3.5-35B-A3B-Q4_K_M.gguf`, `Qwen3.6-27B-Q4_K_M.gguf`, `Qwen3.5-9B-Q4_K_M.gguf`) and the GPTQ safetensors directory `Qwen3.6-35B-A3B-GPTQ-Int4/` (~22.74GB) shared by vLLM and SGLang.
 - **venv/** (git-ignored): Python 3.12 venv with `openai`, `huggingface-hub` (provides `hf` CLI for downloads). Used by `chat.py` and the model downloader in `setup.sh`.
 - **chat.py**: Streaming multi-turn chat client using OpenAI SDK against localhost:5000 (works against any engine — they all expose the same API shape).
-- **scripts/start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF (`--n-gpu-layers 99 --ctx-size 98304 --parallel 8 --flash-attn on --reasoning-format deepseek`). This is what the systemd unit runs. `--parallel 8` is tuned — see `docs/CONCURRENCY.md`.
+- **scripts/start-agent-stack.sh**: what the systemd unit runs — two llama.cpp instances (35B workers on 5000, 27B planner/judge on 5001). If either server dies, the script kills the other and exits non-zero so systemd restarts the pair together.
+- **scripts/start-llama-35b-moe.sh**: llama.cpp launcher for the MXFP4 MoE GGUF alone (`--n-gpu-layers 99 --flash-attn on --reasoning-format deepseek` + MTP flags). `--parallel` tuning: see `docs/CONCURRENCY.md`.
 - **scripts/start-vllm-35b-mtp.sh**: vLLM launcher with `--quantization gptq`, `--reasoning-parser qwen3` (≡ llama.cpp's deepseek format — populates the same `reasoning_content` field), `--speculative-config '{"method": "mtp", "num_speculative_tokens": 5}'` for MTP n=5, and `--cpu-offload-gb 4` because GPTQ weights are tight on a 24GB GPU.
 - **scripts/start-sglang-35b-mtp.sh**: SGLang launcher with `--quantization gptq_marlin`, `--reasoning-parser qwen3`, and the NEXTN speculative algorithm (`--speculative-algorithm NEXTN --speculative-num-steps 5 --speculative-eagle-topk 1 --speculative-num-draft-tokens 6`). Sets `SGLANG_ENABLE_SPEC_V2=1` and pins CUDA 12.8 + g++-14.
 - **scripts/start-llama.sh** / **scripts/start-llama-9b.sh** / **scripts/start-llama-27b.sh**: llama.cpp launchers using `--reasoning-format deepseek`. The 9B variant uses 128K context / ~6GB VRAM. The 27B is dense Qwen3.6 — slower than the MoE since all params activate per token.
-- **systemd/llama-server.service**: Systemd unit (kept under the historical name even though `ExecStart` is now `scripts/start-llama-35b-moe.sh`). Auto-restart on crash.
+- **systemd/llama-server.service**: Systemd unit (kept under the historical name even though `ExecStart` is now `scripts/start-agent-stack.sh`). Auto-restart on crash.
 - **docs/API.md**: Full API documentation with endpoint details, streaming format, and client examples.
 - **docs/CONCURRENCY.md**: Concurrency / `--parallel` tuning results and recommendation.
 - **benchmarks/benchmark.py** / **benchmarks/bench_separate.py** (git-ignored): Benchmark scripts.
@@ -75,8 +77,8 @@ journalctl -u llama-server -f         # Live logs
 - **VRAM is tight under vLLM/SGLang.** GPTQ weights are ~22.7GB. The vLLM launcher uses `--gpu-memory-utilization 0.93` and `--cpu-offload-gb 4`; SGLang uses `--mem-fraction-static 0.92`. If startup OOMs, raise the offload knob or reduce `--max-model-len` / `--context-length` (currently 32768, well below the model's 262K native limit, traded for KV cache room).
 - llama.cpp build targets **SM89** (Ada Lovelace / RTX 4090). Change `-DCMAKE_CUDA_ARCHITECTURES=89` in setup.sh for other GPUs.
 - SGLang's launcher pins `CUDA_HOME=/usr/local/cuda-12.8` and forces g++-14 with a `-D__THROW=` workaround — this is required because of glibc/CUDA header incompatibilities; do not remove without testing.
-- Server listens on `0.0.0.0:5000` with a web UI at the root. Firewall rule allows `192.168.10.0/24`.
+- Servers listen on `0.0.0.0` (5000 = 35B workers, 5001 = 27B planner/judge under the stack), each with a web UI at the root. The web UI is served gzip-only — plain `curl /` returns 415; use `curl --compressed` or a browser. Firewall allows `192.168.10.0/24` to port 5000; 5001 needs its own `ufw allow` rule (see `CHANGELOG.md`).
 - Ollama service was disabled (`systemctl disable ollama`) to avoid VRAM conflicts.
 - Cold-start times: llama.cpp ~5s, vLLM ~30–60s, SGLang ~30–90s.
 - The `hf` CLI (not `huggingface-cli`) is used for model downloads.
-- Only one engine loaded at a time; the `model` field in API requests is accepted but ignored.
+- The `model` field in API requests is accepted but ignored — each port serves exactly one model. All llama.cpp launchers pass `--alias`, so `/v1/models` reports clean names (`Qwen3.6-35B-A3B`, `Qwen3.6-27B`, …) instead of GGUF file paths.

@@ -1,12 +1,12 @@
 # API Documentation
 
-The server provides an OpenAI-compatible API at `http://localhost:5000`.
+The server provides an OpenAI-compatible API. Under the production agent stack there are two endpoints, one model each:
 
-**Base URL:** `http://localhost:5000` (or `http://192.168.10.124:5000` from other machines on the network)
+**Base URLs:** `http://localhost:5000` — `Qwen3.6-35B-A3B` (MoE workers); `http://localhost:5001` — `Qwen3.6-27B` (dense planner/judge). From the LAN: `http://192.168.10.106:5000` / `:5001`.
 
 **Authentication:** None required (`api_key` can be any string).
 
-**Model name:** `Qwen3.5-35B-A3B-Q4_K_M.gguf`
+**Model name:** reported by `/v1/models` as the launcher's `--alias` (e.g. `Qwen3.6-35B-A3B`). The `model` field in requests is accepted but ignored — each port serves exactly one model. Examples below use port 5000; everything applies identically to 5001.
 
 ---
 
@@ -57,7 +57,7 @@ Each message in the `messages` array has:
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    "model": "Qwen3.6-35B-A3B",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "What is 2+2?"}
@@ -74,7 +74,7 @@ curl http://localhost:5000/v1/chat/completions \
   "id": "chatcmpl-9CIRokWgbwRyNhk1CFDRphXXPlipmEGu",
   "object": "chat.completion",
   "created": 1772913014,
-  "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+  "model": "Qwen3.6-35B-A3B",
   "system_fingerprint": "b8233-c5a778891",
   "choices": [
     {
@@ -146,7 +146,7 @@ Set `"stream": true` to receive Server-Sent Events.
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    "model": "Qwen3.6-35B-A3B",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": true
   }'
@@ -212,7 +212,7 @@ Raw text completion (no chat formatting).
 curl http://localhost:5000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    "model": "Qwen3.6-35B-A3B",
     "prompt": "The capital of Japan is",
     "max_tokens": 20,
     "temperature": 0.0
@@ -226,7 +226,7 @@ curl http://localhost:5000/v1/completions \
   "id": "chatcmpl-iQYfRSVI5TqN9NkoFgYXMsFEvKqKGfgc",
   "object": "text_completion",
   "created": 1772913029,
-  "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+  "model": "Qwen3.6-35B-A3B",
   "choices": [
     {
       "index": 0,
@@ -268,7 +268,7 @@ curl http://localhost:5000/v1/models
   "object": "list",
   "data": [
     {
-      "id": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+      "id": "Qwen3.6-35B-A3B",
       "object": "model",
       "created": 1772909155,
       "owned_by": "llamacpp",
@@ -318,7 +318,7 @@ client = OpenAI(
 
 # Non-streaming
 response = client.chat.completions.create(
-    model="Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    model="Qwen3.6-35B-A3B",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Explain gravity in one sentence."},
@@ -329,7 +329,7 @@ print(response.choices[0].message.content)
 
 # Streaming
 stream = client.chat.completions.create(
-    model="Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    model="Qwen3.6-35B-A3B",
     messages=[{"role": "user", "content": "Hello"}],
     stream=True,
 )
@@ -343,11 +343,11 @@ print()
 ### JavaScript (fetch)
 
 ```javascript
-const response = await fetch("http://192.168.10.124:5000/v1/chat/completions", {
+const response = await fetch("http://192.168.10.106:5000/v1/chat/completions", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    model: "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    model: "Qwen3.6-35B-A3B",
     messages: [{ role: "user", content: "Hello" }],
   }),
 });
@@ -361,12 +361,12 @@ console.log(data.choices[0].message.content);
 import OpenAI from "openai";
 
 const client = new OpenAI({
-  baseURL: "http://192.168.10.124:5000/v1",
+  baseURL: "http://192.168.10.106:5000/v1",
   apiKey: "none",
 });
 
 const response = await client.chat.completions.create({
-  model: "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+  model: "Qwen3.6-35B-A3B",
   messages: [{ role: "user", content: "Hello" }],
 });
 console.log(response.choices[0].message.content);
@@ -378,7 +378,7 @@ console.log(response.choices[0].message.content);
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    "model": "Qwen3.6-35B-A3B",
     "messages": [
       {"role": "system", "content": "You are a coding assistant."},
       {"role": "user", "content": "Write a hello world in Python"},
