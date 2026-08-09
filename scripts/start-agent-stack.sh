@@ -43,4 +43,9 @@ WORKERS_PID=$!
 PLANNER_PID=$!
 
 trap 'kill $WORKERS_PID $PLANNER_PID 2>/dev/null' INT TERM
+# If either server dies, take the other down too so systemd restarts the pair.
+wait -n
+STATUS=$?
+kill $WORKERS_PID $PLANNER_PID 2>/dev/null
 wait
+exit $STATUS
