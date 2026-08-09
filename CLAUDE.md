@@ -27,10 +27,12 @@ Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM; originally b
 ./scripts/start-llama-9b.sh              # Alt: llama.cpp + dense 9B (128K ctx, ~6GB VRAM)
 ./scripts/start-llama-27b.sh             # Alt (best quality): llama.cpp + dense Qwen3.6-27B Q8_0 MTP (262K ctx/slot, ~64GB VRAM, ~139 tok/s)
 ./venv/bin/python clients/chat.py        # Interactive CLI chat client (commands: quit, clear)
+./scripts/start-agent-stack.sh           # Both models at once (~77GB): 35B workers on 5000, 27B planner/judge on 5001
+./venv/bin/python clients/orchestrate.py "task"  # Plan (27B) -> 3 parallel workers (35B) -> judge (27B); --mode bestof, --workers N
 sudo systemctl stop llama-server         # Stop the production service before running a manual launcher
 ```
 
-Only one engine can run at a time (all bind port 5000); stop the running one before switching.
+Only one engine can bind port 5000 at a time; stop the running one before switching. Exception: `start-agent-stack.sh` runs two llama.cpp instances together (35B on 5000, 27B on 5001) — the 96GB card fits both, and port 5000 keeps the normal API so chat.py and the web UI still work under the stack.
 
 ### Systemd Service (production)
 
