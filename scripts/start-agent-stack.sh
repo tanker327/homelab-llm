@@ -16,6 +16,7 @@ BIN="$DIR/llama.cpp/build/bin/llama-server"
 
 "$BIN" \
   --model "$DIR/models/Qwen3.6-35B-A3B-MTP-MXFP4_MOE.gguf" \
+  --alias Qwen3.6-35B-A3B \
   --host 0.0.0.0 \
   --port 5000 \
   --n-gpu-layers 99 \
@@ -29,6 +30,7 @@ WORKERS_PID=$!
 
 "$BIN" \
   --model "$DIR/models/Qwen3.6-27B-MTP-Q8_0.gguf" \
+  --alias Qwen3.6-27B \
   --host 0.0.0.0 \
   --port 5001 \
   --n-gpu-layers 99 \

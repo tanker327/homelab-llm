@@ -12,6 +12,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 exec "$DIR/llama.cpp/build/bin/llama-server" \
   --model "$DIR/models/Qwen3.6-27B-MTP-Q8_0.gguf" \
+  --alias Qwen3.6-27B \
   --host 0.0.0.0 \
   --port 5000 \
   --n-gpu-layers 99 \

@@ -9,3 +9,4 @@ __pycache__/
 benchmarks/bench_separate.py
 benchmarks/benchmark.py
 toolchain-fix/
+*.log
