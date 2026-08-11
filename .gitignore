@@ -10,3 +10,5 @@ benchmarks/bench_separate.py
 benchmarks/benchmark.py
 toolchain-fix/
 *.log
+*.serverlog
+.*.swp

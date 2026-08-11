@@ -65,7 +65,7 @@ def tokenize(text: str, port: int) -> int:
     for key in keys:
         body = {key: text}
         if key == "prompt":
-            body["model"] = "any"
+            body["model"] = "local"  # engines that validate the name are launched with --served-model-name local
         try:
             req = urllib.request.Request(
                 f"http://localhost:{port}/tokenize",
@@ -125,7 +125,7 @@ def probe(target: int, port: int, depth_frac: float, no_needle: bool, timeout_s:
         return Result(target, 0, "BUILD_FAIL", None, None, "", str(e)[:300], None)
 
     body = {
-        "model": "any",
+        "model": "local",
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
         "temperature": 0,

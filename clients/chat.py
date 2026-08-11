@@ -27,7 +27,7 @@ while True:
     print("\033[1;34mAssistant:\033[0m ", end="", flush=True)
     try:
         stream = client.chat.completions.create(
-            model="Qwen3.5-35B-A3B-Q4_K_M.gguf",
+            model="local",
             messages=messages,
             stream=True,
         )

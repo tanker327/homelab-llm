@@ -103,3 +103,97 @@ N simultaneous requests, nvidia-smi sampled at 1s intervals.
 # server must be running with enough slots for the levels tested
 ./venv/bin/python benchmarks/bench_matrix.py --label my-config --levels 1,2,4,8 --json out.jsonl
 ```
+
+---
+
+# Addendum: Qwen3.6-27B engine bake-off (2026-08-11/12)
+
+Full three-engine comparison for the dense 27B — llama.cpp (incumbent) vs
+vLLM 0.27.1 vs SGLang 0.5.17 — optimizing multi-agent aggregate throughput.
+Harness: `benchmarks/bench_serving.py` (streaming TTFT, token-exact prompts,
+unique prefixes to defeat prefix caching, GPU telemetry, tok/J). Raw data:
+`benchmarks/results/*.jsonl`; environment: `benchmarks/results/env.md`.
+
+## Winner: vLLM + Qwen3.6-27B-FP8 + MTP n=3 + FP8 KV cache
+
+`scripts/start-vllm-27b-fp8.sh` — 262K max-model-len, ~86GB VRAM.
+
+| Metric | Incumbent (llama.cpp Q8_0+MTP) | Winner | Δ |
+|---|---|---|---|
+| Agent agg tok/s, best N (12K in/2K out) | 244 @ N=8 (p95 TTFT 35s) | **530 @ N=8 (p95 12s)** | **+117%** |
+| Single-stream decode, 2K ctx | 130–141 | 118 | −12% |
+| Decode @ 49K ctx | 120 | 120 | = |
+| Judge TTFT (49K in) | 16–19s | 7.2s | −60% |
+| Prefill tok/s (2K) | ~3,300 | ~6,000–7,300 | ~2x |
+| tok/J at best N | 0.49 | 0.97–0.99 | ~2x |
+| Power at best N | 495–570W (capped at N=1) | 505–548W (never capped) | — |
+| Max NIAH-correct context | untested (262K config) | 254,976 tokens | — |
+| Quality smoke (10 tasks, vs Q8_0 ref 10/10) | 10/10 | 10/10 | = |
+
+## Key findings
+
+1. **Speculative decoding is the entire ballgame.** Base dense decode is
+   memory-bound at ~50 tok/s on ALL THREE engines (llama.cpp no-MTP 51,
+   vLLM no-spec 50, SGLang no-spec 51). MTP/NEXTN with the checkpoint's own
+   MTP head gives 2.4–2.6x with ~0.85–0.92 acceptance, and the gain does
+   NOT invert under batching (still ~2x at N=8).
+2. **FP8 KV cache is a speed feature here, not just capacity.** vLLM
+   `--kv-cache-dtype fp8_e4m3`: agent N=8 434→530 agg (+22%), 49K-ctx decode
+   67→120 tok/s (+79%), zero quality regression (10/10). Adopted.
+3. **The incumbent's published ~300 agg peak was a short-prompt artifact.**
+   With realistic 12K-token prompts, llama.cpp's serialized ~2.4K tok/s
+   prefill caps it at 244 agg with 23–35s p95 TTFT. The FP8 engines prefill
+   2–3x faster and batch prefill properly.
+4. **Power cap explains the plateaus.** llama.cpp Q8_0 draws 570–600W from
+   the first stream (0.2–0.25 tok/J); FP8 tensor-core kernels never reach
+   the 600W cap and land at 0.8–1.0 tok/J at high N — >3x the incumbent's
+   energy efficiency at 2x+ the throughput.
+5. **SGLang: best single-stream, broken burst scheduler.** Fastest TTFT
+   (251ms), fastest prefill (8.1–8.6K tok/s), and 120 tok/s decode at 49K —
+   but at 8-wide bursts aggregate DROPS (425@N=6 → 350@N=8, p95 TTFT 24–44s)
+   with or without spec decode. vLLM keeps scaling to N=8. With multi-agent
+   throughput as the priority, vLLM wins.
+6. **SM120 + CUDA 13.1 is a solved problem** (as of vLLM 0.27.1 / SGLang
+   0.5.17): plain pip wheels work; the 4090-era CUDA 12.8 + g++-14 pins are
+   obsolete. Only requirements: `ninja` on PATH and the `toolchain-fix`
+   header shim exported for flashinfer's runtime JIT (glibc 2.43).
+7. **Never run this model at temperature 0** — greedy decoding produces
+   unbounded thinking loops (observed 54K+ reasoning tokens on a trivial
+   task). Use Qwen's recommended temp 0.6 / top_p 0.95.
+
+## Concurrency matrices (agent workload: 12,288 in / 2,048 out, 3-run medians)
+
+| Config | N=1 | N=2 | N=4 | N=6 | N=8 | notes |
+|---|---|---|---|---|---|---|
+| llama.cpp Q8_0+MTP3 | 90 | 102* | 140 | 180* | **244** | p95 TTFT 35s @ N=8 |
+| vLLM FP8+MTP3 | 98 | 188 | 310 | 407 | **434** | p95 11.8s; accept ~0.9 |
+| vLLM FP8+MTP3+**KV-fp8** | — | — | 348 | — | **530** | p95 12.0s; 0.97 tok/J |
+| vLLM FP8 no-spec | 47 | 85 | 153 | 214 | 259 | spec-off baseline |
+| SGLang FP8+NEXTN3 | 121 | 218 | 340 | **425** | 350 | N=8 regresses; p95 24s |
+| SGLang FP8 no-spec | 48 | 86 | 156 | 214 | 158 | N=8 p95 44s |
+
+\* high run-to-run variance (llama.cpp slot scheduling).
+
+## Single-stream (phase2.jsonl)
+
+| Config | W1 decode (2K in/1K out) | W1 TTFT | prefill tok/s | judge decode (49K in) | judge TTFT |
+|---|---|---|---|---|---|
+| llama.cpp Q8_0+MTP3 | 120–141 | 750ms | 3,300 | 120 | 16–19s |
+| llama.cpp Q8_0 no-MTP | 51 | 690ms | 3,700 | — | — |
+| vLLM FP8+MTP3 | 118 | 342ms | 6,000 | 67 (120 with KV-fp8) | 7.0s |
+| SGLang FP8+NEXTN3 | 128 | 251ms | 8,100–8,600 | 120 | 7.3s |
+
+## Soak
+
+2h sustained agent N=4 on the winner config: see `benchmarks/results/soak.jsonl`
+(errors / VRAM creep / throughput drift summarized in RESUME-STATE.md).
+
+## Production notes
+
+- The winner needs ~86GB → **cannot coexist with the 35B MoE agent stack**.
+  Switching the systemd default to it is a separate decision: either the 27B
+  replaces the stack, or the stack keeps llama.cpp for the 27B half.
+- Restore/keep production: `sudo systemctl start llama-server` runs the
+  unchanged agent stack. The bake-off changed no production config.
+- Reproduce any row:
+  `venv/bin/python benchmarks/bench_serving.py --label X --port 5000 --workload agent --levels 1,2,4,6,8 --runs 3 --json out.jsonl`

@@ -1,14 +1,16 @@
 [Unit]
-Description=llama.cpp agent stack (Qwen3.6-35B-A3B workers on 5000, Qwen3.6-27B planner/judge on 5001)
+Description=vLLM inference server (Qwen3.6-27B-FP8 + MTP + FP8 KV, port 5000)
 After=network.target
 
 [Service]
 Type=simple
 User=tanker
 WorkingDirectory=/home/tanker/projects/work/homelab-llm
-ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-agent-stack.sh
+ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-vllm-27b-fp8.sh
 Restart=on-failure
-RestartSec=5
+# vLLM needs the old process's VRAM fully released before it reallocates
+# (~10s), and boots in ~2-3 min; 15s keeps restart loops from OOMing.
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

@@ -21,7 +21,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
-PLANNER_URL = "http://localhost:5001/v1"
+# Single-server mode since the vLLM 27B became the production default
+# (2026-08-12): planner, workers, and judge all hit the same model on 5000.
+# vLLM batches the parallel worker calls; the two-model stack is gone.
+PLANNER_URL = "http://localhost:5000/v1"
 WORKERS_URL = "http://localhost:5000/v1"
 
 planner = OpenAI(base_url=PLANNER_URL, api_key="none")
