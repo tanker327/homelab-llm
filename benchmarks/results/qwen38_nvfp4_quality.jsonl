@@ -1,0 +1,1 @@
+{"label": "nvfp4-inferact-mtp3-kvfp8", "passed": 10, "results": {"code-rle": true, "code-merge-intervals": true, "code-semver": true, "code-flatten": true, "fmt-three-lines": true, "fmt-csv": true, "json-tool-call": true, "json-extract": true, "longctx-niah": true, "longctx-synth": true}, "ts": "2026-08-16T04:06:16"}

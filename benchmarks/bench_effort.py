@@ -27,6 +27,12 @@ CONFIGS = {
     "nothink": {"kw": {"enable_thinking": False},     "samp": {"temperature": 0.7, "top_p": 0.8, "presence_penalty": 1.5}},
 }
 
+# Optional comma-separated subset, e.g. EFFORT_CONFIGS=medium,low
+import os
+_subset = os.environ.get("EFFORT_CONFIGS")
+if _subset:
+    CONFIGS = {k: v for k, v in CONFIGS.items() if k in _subset.split(",")}
+
 PROMPT_SUFFIX = (
     "\n\nReturn the complete implementation in a single ```python code block. "
     "No usage examples needed, just the implementation."

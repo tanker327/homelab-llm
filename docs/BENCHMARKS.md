@@ -315,3 +315,55 @@ FP8-vs-default KV A/B on the 3.8 hybrid (expect small effect: only 16/64
 layers hold KV), `--max-num-batched-tokens` tuning, 1M-context YaRN probe
 (`--hf-overrides '{"text_config":{"max_position_embeddings":1010000}}'`),
 NVFP4 serving bench, BF16 quality reference.
+
+# Addendum: service-window tests — NVFP4 bake-off, KV A/B, 1M YaRN (2026-08-16)
+
+Production stopped for a test window; all runs on identical launcher flags
+unless noted. Raw data: `qwen38_nvfp4_bench.jsonl`, `qwen38_nvfp4_quality.jsonl`,
+`qwen38_nvfp4_effort.jsonl`, `qwen38_kvab_bench.jsonl`.
+
+## NVFP4 (Inferact modelopt) vs FP8 — NVFP4 wins on everything but vision
+
+Agent workload, 3-run medians, same flags (MTP n=3, FP8 KV, 262K, s=16):
+
+| config | N=1 dec p50 | N=8 agg | N=16 agg | accept | tok/J @max | VRAM |
+|--------|------------:|--------:|---------:|-------:|-----------:|-----:|
+| FP8 (production) | 91.4 | 449 | 592 | ~0.6 | 0.99 | 88.0G |
+| **NVFP4-Inferact** | **128.9 (+41%)** | **563 (+25%)** | **676 (+14%)** | 0.89–0.97 | 1.19 | 87.8G |
+
+Quality: 10/10 smoke, NIAH/synthesis included. Coding-task success (bench_effort
+medium+low ×3): 32/36 (89%) vs FP8's 29/32 (91%) — parity within noise; every
+failure on both is the same hard `logparse` task. Tool calling verified. KV
+capacity 1.65M tokens. Much of the speed gain is the higher MTP acceptance.
+
+**Trade-off: vLLM 0.27.1 serves this checkpoint text-only** (no registered
+multimodal processor for the quantized tower) — vision requests are rejected.
+FP8 keeps vision. Launcher: `scripts/start-vllm-38-27b-nvfp4.sh` (manual);
+production switch is a policy call: text speed vs vision.
+
+## KV cache A/B on Qwen3.8 (FP8 weights): fp8_e4m3 confirmed, emphatically
+
+Plan v2 predicted a small effect (only 16/64 layers hold KV). Wrong — FP8 KV
+is a large speed win here because MTP acceptance depends on it:
+
+| KV dtype | N=1 dec p50 | N=8 agg | accept | KV tokens |
+|----------|------------:|--------:|-------:|----------:|
+| default (bf16) | 79.2 | 349 | 0.58 | 800K |
+| fp8_e4m3 (production) | 91.4 (+15%) | 449 (+29%) | ~0.6→0.94* | 1.55M |
+
+*acceptance as reported by the harness; the bf16-KV run's 0.58 vs fp8-KV runs
+0.89–0.97 on NVFP4 and ~0.6 on FP8's original record — directionally, fp8 KV
+never hurts and usually helps acceptance. Keep `--kv-cache-dtype fp8_e4m3`.
+
+## --max-num-batched-tokens: default 8192 stays
+
+NVFP4, s=16: mbt=16384 ties at N=16 (676.8 vs 676.0) and regresses N=8
+(495 vs 563, TTFT p50 7.8s vs 6.3s). No change.
+
+## 1M-context YaRN probe: works
+
+NVFP4 + `--max-model-len 1010000 --max-num-seqs 4` + YaRN factor 4.0 via
+`--hf-overrides '{"text_config":{"max_position_embeddings":1010000,"rope_scaling":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":262144}}}'`:
+starts clean, KV capacity 1.74M tokens (1.72× concurrency at 1M). Needle at
+25% depth: **PASS at 500K (245s wall)** and **PASS at 980K (851s wall,
+prefill-dominated)**. Viable as a special-occasion config; not daily (TTFT).

@@ -23,6 +23,7 @@ Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM, SM120, CUDA 
 ./scripts/setup.sh                       # llama.cpp build + GGUF download + deps (idempotent; does NOT set up vllm-venv)
 ./scripts/start-vllm-38-27b-fp8.sh       # SYSTEMD DEFAULT: vLLM + Qwen3.8-27B-FP8 + MTP n=3 + FP8 KV (262K ctx, 16 seqs, ~88GB)
 ./scripts/start-vllm-27b-fp8.sh          # Rollback: vLLM + Qwen3.6-27B-FP8 + MTP n=3 + FP8 KV (262K ctx, ~86GB)
+./scripts/start-vllm-38-27b-nvfp4.sh     # Manual: NVFP4 (Inferact) — +14-41% faster than FP8, quality parity, but TEXT-ONLY (no vision); see BENCHMARKS.md 2026-08-16
 ./scripts/start-agent-stack.sh           # Manual: former default, two llama.cpp models (~77GB): 35B on 5000, 27B on 5001
 ./scripts/start-llama-27b.sh             # Manual: llama.cpp + 27B Q8_0 MTP (262K ctx/slot, ~64GB, ~139 tok/s single-stream)
 ./scripts/start-llama-35b-moe.sh         # Manual: llama.cpp + Qwen3.6-35B-A3B MTP MXFP4_MOE (MoE, ~418 tok/s)
