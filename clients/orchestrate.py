@@ -35,12 +35,26 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def chat(client: OpenAI, prompt: str, system: str | None = None) -> str:
+# Qwen3.8 official thinking-mode sampling; reasoning_effort medium matches
+# xhigh's coding pass rate at ~1/10th the tokens (2026-08-16 sweep, see
+# docs/BENCHMARKS.md), so all roles default to medium instead of the chat
+# template's xhigh.
+def chat(client: OpenAI, prompt: str, system: str | None = None,
+         effort: str = "medium") -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    resp = client.chat.completions.create(model="local", messages=messages)
+    resp = client.chat.completions.create(
+        model="local",
+        messages=messages,
+        temperature=1.0,
+        top_p=0.95,
+        extra_body={
+            "top_k": 20,
+            "chat_template_kwargs": {"reasoning_effort": effort},
+        },
+    )
     return resp.choices[0].message.content or ""
 
 
@@ -60,9 +74,9 @@ def plan(task: str, n: int) -> list[str]:
     return subtasks[:n] if len(subtasks) >= n else subtasks + [task] * (n - len(subtasks))
 
 
-def work(subtasks: list[str]) -> list[str]:
+def work(subtasks: list[str], effort: str) -> list[str]:
     with ThreadPoolExecutor(max_workers=len(subtasks)) as pool:
-        return list(pool.map(lambda s: chat(workers, s), subtasks))
+        return list(pool.map(lambda s: chat(workers, s, effort=effort), subtasks))
 
 
 def judge(task: str, subtasks: list[str], results: list[str], mode: str) -> str:
@@ -91,6 +105,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=3, help="number of parallel workers")
     ap.add_argument("--mode", choices=["decompose", "bestof"], default="decompose")
     ap.add_argument("--show-work", action="store_true", help="print plan and worker output")
+    ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="medium",
+                    help="worker reasoning effort (planner/judge stay at medium)")
     args = ap.parse_args()
 
     if args.mode == "bestof":
@@ -102,8 +118,8 @@ def main() -> None:
         for i, s in enumerate(subtasks):
             log(f"  {i + 1}. {s}")
 
-    log(f"[work] {len(subtasks)} x 35B workers running in parallel...")
-    results = work(subtasks)
+    log(f"[work] {len(subtasks)} workers running in parallel (effort {args.effort})...")
+    results = work(subtasks, args.effort)
     if args.show_work:
         for i, r in enumerate(results):
             log(f"\n--- worker {i + 1} ---\n{r}\n")

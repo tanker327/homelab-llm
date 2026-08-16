@@ -248,3 +248,70 @@ creep), thermals stabilized at 85–86C / ~510W.
 FP8 KV (`fp8_e4m3`), MTP n=3, `--reasoning-parser qwen3`, `--tool-call-parser
 qwen3_xml` (alias of `qwen3_coder` in vLLM 0.27.1). ~88GB VRAM. Rollback =
 point systemd `ExecStart` back at `start-vllm-27b-fp8.sh`.
+
+# Addendum: reasoning-effort sweep + serving-feature verification (2026-08-16)
+
+All against the live production server (vLLM 0.27.1, Qwen3.8-27B-FP8, MTP n=3,
+FP8 KV). Harness: `benchmarks/bench_effort.py`; raw data:
+`benchmarks/results/qwen38_effort.jsonl`.
+
+## reasoning_effort × thinking mode (6 assert-gated coding tasks × 3 runs)
+
+Tasks run 6-way concurrent per config; thinking configs sampled 1.0/0.95/top_k
+20, non-thinking 0.7/0.8/presence 1.5. One task (`logparse`) had a broken
+assert in runs 1–2 (harness bug, models were right); those rows are excluded.
+
+| effort  | pass  | avg completion tok/task | wall p50 | wall max |
+|---------|------:|------------------------:|---------:|---------:|
+| xhigh (template default) | 14/16 | 17,807 | 221s | 384s |
+| medium  | 14/16 |  4,309 |  22s | 371s |
+| low     | 15/16 |  1,856 |  17.5s | 30s |
+| thinking off | 13/16 | 707 | 6s | 16s |
+
+**Conclusion:** on self-contained coding tasks, xhigh buys no pass-rate gain
+over low/medium while costing ~10× tokens and ~10–12× median wall time; low
+also has the tightest tail latency. Thinking off is measurably weaker. Client
+defaults changed to `reasoning_effort: medium` (chat.py adds an
+`effort <low|medium|xhigh|off>` command; orchestrate.py takes `--effort`,
+planner/judge stay medium). Pass-rate deltas among thinking levels are within
+noise at this sample size; the cost deltas are not.
+
+## Feature verification on the production config
+
+- **Vision works as-is** (plan Phase 10): PNG UI screenshot via base64
+  `image_url` → all fields/buttons/colors/error text correctly read, 3.5s
+  wall, no serve-config change needed (`language_model_only: false` in the
+  FP8 checkpoint; tower loaded).
+- **Tool calling works**: `qwen3_xml` parser yields clean `tool_calls` with
+  valid JSON args, sensible multi-turn chaining after tool results, in both
+  thinking and non-thinking modes.
+- **preserve_thinking verified** (template default on): re-injects prior-turn
+  reasoning only if the client echoes it back as `reasoning_content` on
+  assistant history messages (prompt_tokens 227→439 in the probe);
+  `preserve_thinking: false` strips it. Plain OpenAI-SDK clients drop
+  reasoning silently — chat.py now echoes it.
+- **API field correction**: vLLM 0.27.1 returns reasoning in
+  `message.reasoning` (non-stream) and `delta.reasoning` (stream) —
+  `reasoning_content` is empty/absent. CLAUDE.md updated.
+
+## NVFP4 candidate validation (plan Phases 0–1, serving bench pending)
+
+Remote checkpoint audit of Qwen3.8-27B NVFP4 exports:
+
+| repo | export | MTP head | vision | size |
+|------|--------|----------|--------|-----:|
+| Inferact/Qwen3.8-27B-NVFP4 | **modelopt (fast path)** | yes | yes | 24.6 GiB |
+| unsloth/Qwen3.8-27B-NVFP4 | compressed-tensors (slow-path risk) + FP8-KV calib | yes | yes | 21.8 GiB |
+| RadixArk/Qwen3.8-27B-NVFP4 | modelopt | **no — eliminated** | yes | 20.4 GiB |
+
+Inferact (primary candidate) downloaded to
+`models/Qwen3.8-27B-NVFP4-Inferact/` for a future bake-off. Not yet served:
+requires stopping production (sudo). Decision rule: NVFP4 must match FP8
+within ~2% task success and be ≥15% faster to displace it.
+
+## Not yet run (needs a service window)
+
+FP8-vs-default KV A/B on the 3.8 hybrid (expect small effect: only 16/64
+layers hold KV), `--max-num-batched-tokens` tuning, 1M-context YaRN probe
+(`--hf-overrides '{"text_config":{"max_position_embeddings":1010000}}'`),
+NVFP4 serving bench, BF16 quality reference.
