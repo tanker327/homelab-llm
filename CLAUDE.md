@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM, SM120, CUDA 13.1; originally built for an RTX 4090 — comments in some launchers note the old 24GB settings), exposing an OpenAI-compatible API on port 5000. The systemd default since 2026-08-15 is **vLLM serving `Qwen3.8-27B-FP8`** (`scripts/start-vllm-38-27b-fp8.sh`): hybrid Gated-DeltaNet/full-attention backbone, MTP speculative decoding n=3 + FP8 KV cache, 262K max-model-len, 16 concurrent sequences, ~88GB VRAM (~592 agg tok/s at N=16 agent load, ~90–95 tok/s single-stream, NIAH-correct to ~261.7K ctx — see the Qwen3.8 addendum in `docs/BENCHMARKS.md`). The previous default `Qwen3.6-27B-FP8` (`scripts/start-vllm-27b-fp8.sh`, winner of the 2026-08-12 three-engine bake-off) is kept as rollback. The former default two-model llama.cpp **agent stack** (`start-agent-stack.sh`: 35B MoE workers on 5000 + 27B Q8_0 on 5001) and all llama.cpp launchers remain for manual use. System-level changes (systemd, firewall, host config) are tracked in `CHANGELOG.md`.
+Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM, SM120, CUDA 13.1; originally built for an RTX 4090 — comments in some launchers note the old 24GB settings), exposing an OpenAI-compatible API on port 5000. The systemd default since 2026-08-16 is **vLLM serving `Qwen3.8-27B-NVFP4-Inferact`** via `scripts/start-production.sh`, which execs whichever launcher `scripts/production-engine.conf` names (currently `start-vllm-38-27b-nvfp4.sh`): hybrid Gated-DeltaNet/full-attention backbone, MTP speculative decoding n=3 + FP8 KV cache, 262K max-model-len, 16 concurrent sequences, ~88GB VRAM (~676 agg tok/s at N=16 agent load, ~129 tok/s single-stream — see the 2026-08-16 addendum in `docs/BENCHMARKS.md`). **NVFP4 is text-only in vLLM 0.27.1 — when vision is needed, switch the conf line to `start-vllm-38-27b-fp8.sh` (the 2026-08-15 FP8 default: vision-capable, ~592 agg @ N=16, ~91 tok/s single-stream) and `sudo systemctl restart llama-server`.** `Qwen3.6-27B-FP8` (`scripts/start-vllm-27b-fp8.sh`, winner of the 2026-08-12 three-engine bake-off) remains as a deeper rollback. The former default two-model llama.cpp **agent stack** (`start-agent-stack.sh`: 35B MoE workers on 5000 + 27B Q8_0 on 5001) and all llama.cpp launchers remain for manual use. System-level changes (systemd, firewall, host config) are tracked in `CHANGELOG.md`.
 
 ## Layout
 
@@ -21,9 +21,10 @@ Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM, SM120, CUDA 
 
 ```bash
 ./scripts/setup.sh                       # llama.cpp build + GGUF download + deps (idempotent; does NOT set up vllm-venv)
-./scripts/start-vllm-38-27b-fp8.sh       # SYSTEMD DEFAULT: vLLM + Qwen3.8-27B-FP8 + MTP n=3 + FP8 KV (262K ctx, 16 seqs, ~88GB)
+./scripts/start-production.sh            # SYSTEMD DEFAULT: runs the launcher named in production-engine.conf (currently NVFP4)
+./scripts/start-vllm-38-27b-nvfp4.sh     # Production engine: vLLM + Qwen3.8-27B NVFP4 + MTP n=3 + FP8 KV (262K, 16 seqs, ~88GB, TEXT-ONLY)
+./scripts/start-vllm-38-27b-fp8.sh       # Vision fallback: vLLM + Qwen3.8-27B-FP8 + MTP n=3 + FP8 KV (262K ctx, 16 seqs, ~88GB)
 ./scripts/start-vllm-27b-fp8.sh          # Rollback: vLLM + Qwen3.6-27B-FP8 + MTP n=3 + FP8 KV (262K ctx, ~86GB)
-./scripts/start-vllm-38-27b-nvfp4.sh     # Manual: NVFP4 (Inferact) — +14-41% faster than FP8, quality parity, but TEXT-ONLY (no vision); see BENCHMARKS.md 2026-08-16
 ./scripts/start-agent-stack.sh           # Manual: former default, two llama.cpp models (~77GB): 35B on 5000, 27B on 5001
 ./scripts/start-llama-27b.sh             # Manual: llama.cpp + 27B Q8_0 MTP (262K ctx/slot, ~64GB, ~139 tok/s single-stream)
 ./scripts/start-llama-35b-moe.sh         # Manual: llama.cpp + Qwen3.6-35B-A3B MTP MXFP4_MOE (MoE, ~418 tok/s)
@@ -45,7 +46,7 @@ sudo systemctl status llama-server    # Check status
 journalctl -u llama-server -f         # Live logs
 ```
 
-`systemd/llama-server.service`'s `ExecStart` points at `scripts/start-vllm-38-27b-fp8.sh` (unit keeps its historical `llama-server` name). To switch the production engine, edit the unit, re-copy it, and `daemon-reload`. When restarting manually, leave ~10s between stop and start — the old process must release VRAM before the new one allocates, or it OOMs. vLLM takes ~2–3 min to become healthy (`/health` returns 200); llama.cpp takes ~5s.
+`systemd/llama-server.service`'s `ExecStart` points at `scripts/start-production.sh` (unit keeps its historical `llama-server` name), which execs the launcher named in `scripts/production-engine.conf`. **To switch the production engine (e.g. NVFP4 ↔ FP8 for vision): edit that one conf line, then `sudo systemctl restart llama-server`** — no unit copy or daemon-reload. When restarting manually, leave ~10s between stop and start — the old process must release VRAM before the new one allocates, or it OOMs. vLLM takes ~2–3 min to become healthy (`/health` returns 200); llama.cpp takes ~5s.
 
 ## Architecture
 
@@ -55,13 +56,13 @@ journalctl -u llama-server -f         # Live logs
 - **models/** (git-ignored): `Qwen3.8-27B-FP8/` safetensors (production, ~29GB, MTP head in `mtp.safetensors`, bf16 vision tower; hybrid arch — 48/64 layers Gated DeltaNet linear attention, KV cache only on the 16 full-attention layers → ~1.55M KV tokens at 0.90 util); `Qwen3.6-27B-FP8/` (rollback); GGUFs for llama.cpp (`Qwen3.6-27B-MTP-Q8_0.gguf`, `Qwen3.6-35B-A3B-MTP-MXFP4_MOE.gguf`, experimental 122B/Coder-Next shards).
 - **venv/** (git-ignored): Python 3.12 venv with `openai`, `huggingface-hub` (provides `hf` CLI). Used by clients, benchmarks, and setup.sh downloads.
 - **toolchain-fix/** (git-ignored): shimmed `bits/mathcalls.h` wrapping C23 `rsqrt` in `#ifndef __CUDACC__` — Ubuntu 26.04's glibc ≥2.42 breaks nvcc otherwise. Needed by setup.sh builds AND at runtime by flashinfer's JIT (injected via `NVCC_PREPEND_FLAGS`).
-- **scripts/start-vllm-38-27b-fp8.sh**: the production launcher — see header comment for the tuning numbers and required env. `start-vllm-27b-fp8.sh` is the Qwen3.6 rollback launcher.
+- **scripts/start-production.sh + production-engine.conf**: systemd entry point; the conf names the active launcher. **start-vllm-38-27b-nvfp4.sh** (production, text-only) and **start-vllm-38-27b-fp8.sh** (vision fallback) both carry tuning numbers in their headers. `start-vllm-27b-fp8.sh` is the Qwen3.6 rollback launcher.
 - **scripts/start-agent-stack.sh**: former default, two llama.cpp instances; if either dies it kills the other and exits non-zero so systemd restarts the pair.
 - **clients/chat.py / orchestrate.py**: OpenAI-SDK clients against `localhost:5000` with `model="local"`. orchestrate.py runs plan → N parallel workers → judge, all against the single production model since 2026-08-12.
 - **benchmarks/bench_serving.py**: the serving benchmark harness (streaming TTFT p50/p95, token-exact prompts via `/tokenize` with calibration fallback, unique per-request prefixes to defeat prefix caching, GPU power/temp/util/VRAM sampling, tok/J, MTP acceptance). `--workload w1|agent|judge`, `--levels`, `--runs`, `--json`.
 - **benchmarks/quality_smoke.py**: 10-task pass/fail quality gate (4 coding with asserts, 2 format, 2 JSON, 2 long-context NIAH/synthesis) at Qwen-recommended sampling.
 - **benchmarks/results/**: bake-off record — `env.md` (environment + gate results), phase JSONLs, `RESUME-STATE.md` (final summary).
-- **systemd/llama-server.service**: systemd unit (historical name; `ExecStart` = `start-vllm-38-27b-fp8.sh`, `RestartSec=15`). Auto-restart on crash.
+- **systemd/llama-server.service**: systemd unit (historical name; `ExecStart` = `start-production.sh`, `RestartSec=15`). Auto-restart on crash.
 - **docs/API.md** / **docs/CONCURRENCY.md** / **docs/BENCHMARKS.md**: API details; llama.cpp `--parallel` tuning (historical); full measurement record including the 2026-08-12 bake-off addendum.
 
 ## Important Details

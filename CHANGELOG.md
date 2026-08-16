@@ -3,6 +3,24 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-08-16 — NVFP4 becomes production engine; engine selection via conf file
+
+NVFP4 (Inferact modelopt export) beat the FP8 default on identical flags in
+the 2026-08-16 service-window bake-off (+41% single-stream decode, +25% agg
+@ N=8, +14% @ N=16, quality parity — `docs/BENCHMARKS.md` addendum). Only
+trade-off: vLLM 0.27.1 serves it text-only, so FP8 stays as the
+vision-capable fallback.
+
+- **systemd unit `llama-server.service` `ExecStart` now points at
+  `scripts/start-production.sh`**, a stable wrapper that execs whichever
+  launcher is named in `scripts/production-engine.conf` (currently
+  `start-vllm-38-27b-nvfp4.sh`).
+- **To switch engines** (e.g. back to FP8 for vision): edit the one
+  non-comment line in `scripts/production-engine.conf`, then
+  `sudo systemctl restart llama-server`. No unit copy or daemon-reload.
+- One-time migration: re-copied the unit to /etc/systemd/system +
+  `daemon-reload`.
+
 ## 2026-08-15 — Qwen3.8-27B-FP8 replaces Qwen3.6-27B-FP8 as production default
 
 Qwen3.8-27B went open-weights 2026-08-13 (Apache 2.0) — a large quality jump

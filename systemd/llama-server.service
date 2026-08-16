@@ -1,12 +1,14 @@
 [Unit]
-Description=vLLM inference server (Qwen3.8-27B-FP8 + MTP + FP8 KV, port 5000)
+Description=vLLM inference server (Qwen3.8-27B, engine per scripts/production-engine.conf, port 5000)
 After=network.target
 
 [Service]
 Type=simple
 User=tanker
 WorkingDirectory=/home/tanker/projects/work/homelab-llm
-ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-vllm-38-27b-fp8.sh
+# Engine selection lives in scripts/production-engine.conf (NVFP4 vs FP8);
+# switching engines is a conf edit + restart, no unit changes needed.
+ExecStart=/home/tanker/projects/work/homelab-llm/scripts/start-production.sh
 Restart=on-failure
 # vLLM needs the old process's VRAM fully released before it reallocates
 # (~10s), and boots in ~2-3 min; 15s keeps restart loops from OOMing.
