@@ -3,6 +3,30 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-08-15 — Qwen3.8-27B-FP8 replaces Qwen3.6-27B-FP8 as production default
+
+Qwen3.8-27B went open-weights 2026-08-13 (Apache 2.0) — a large quality jump
+over 3.6 (SWE-bench Pro 61.7 vs 53.5, Terminal Bench 73.0 vs 63.4) on a new
+hybrid backbone (48/64 Gated DeltaNet linear-attention layers). Validated and
+tuned 2026-08-15; record in `docs/BENCHMARKS.md` (Qwen3.8 addendum) and
+`benchmarks/results/qwen38_*.jsonl`.
+
+- **systemd unit `llama-server.service` now runs `scripts/start-vllm-38-27b-fp8.sh`**:
+  same vLLM 0.27.1 (no engine upgrade needed — arch `Qwen3_5ForConditionalGeneration`
+  was already supported), MTP n=3, FP8 KV cache, 262K max-model-len,
+  **16 concurrent sequences** (up from 8 — the hybrid KV cache holds ~1.55M
+  tokens, vs far less on 3.6's dense attention). ~88GB VRAM.
+- **Numbers**: ~592 agg tok/s @ N=16 agent load (3.6 record: ~530 @ N=8),
+  ~444 @ N=8, ~90–95 tok/s single-stream (3.6: ~118 — 3.8's single recursive
+  MTP layer accepts fewer drafts), 1.0 tok/J @ N=16, NIAH-correct to 261.7K
+  (3.6: ~255K), 10/10 quality smoke. MTP n=4 was faster single-stream but
+  showed erratic multi-second stalls — rejected.
+- **Sampling changed**: Qwen3.8 thinking-mode recommendation is temp 1.0 /
+  top_p 0.95 / top_k 20 (3.6 was 0.6/0.95). `quality_smoke.py` default
+  updated; temp 0 still forbidden.
+- **Rollback**: Qwen3.6-27B-FP8 weights and `start-vllm-27b-fp8.sh` kept —
+  point `ExecStart` back and restart.
+
 ## 2026-08-12 — vLLM Qwen3.6-27B-FP8 replaces the agent stack as production default
 
 Decision from the three-engine bake-off recorded in `docs/BENCHMARKS.md`

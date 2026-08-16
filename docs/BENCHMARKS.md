@@ -197,3 +197,54 @@ unique prefixes to defeat prefix caching, GPU telemetry, tok/J). Raw data:
   unchanged agent stack. The bake-off changed no production config.
 - Reproduce any row:
   `venv/bin/python benchmarks/bench_serving.py --label X --port 5000 --workload agent --levels 1,2,4,6,8 --runs 3 --json out.jsonl`
+
+# Addendum: Qwen3.8-27B-FP8 upgrade (2026-08-15)
+
+Qwen3.8-27B (open-weights 2026-08-13, Apache 2.0) replaced Qwen3.6-27B-FP8 as
+the production default two days after the bake-off above. Same engine (vLLM
+0.27.1 — the `Qwen3_5ForConditionalGeneration` arch was already registered),
+same launcher pattern; raw data in `benchmarks/results/qwen38_bench.jsonl`
+and `qwen38_quality.jsonl`.
+
+## Why upgrade
+
+- Quality: SWE-bench Pro 61.7 (3.6: 53.5), Terminal Bench 73.0 (63.4),
+  OSWorld-Verified 84.3 (63.9), MathVision 94.6 (85.1) — vendor-reported.
+- Architecture: hybrid — 48 of 64 layers are Gated DeltaNet linear attention,
+  full attention every 4th layer. KV cache only exists on the 16 full-attention
+  layers → **1.55M KV tokens** fit at 0.90 util (dense 3.6 fit far fewer),
+  enabling 16 concurrent 262K-capable sequences.
+- Local gates: 10/10 quality smoke (thinking sampling now temp 1.0 / top_p
+  0.95 per Qwen3.8 recommendation), NIAH-correct to **261,696 tokens**
+  (3.6: ~255K) with TTFT ~88s at that length.
+
+## Tuning matrix (agent workload: 12,288 in / 2,048 out, 3-run medians)
+
+| config    | N=1 dec p50 | N=8 agg | N=16 agg | tok/J @max | notes |
+|-----------|------------:|--------:|---------:|-----------:|-------|
+| n=3, s=8  |        96.4 |     436 |        — |       0.81 | baseline (3.6 flags) |
+| n=2, s=8  |        90.9 |     424 |        — |       0.80 | strictly worse |
+| n=4, s=8  |       100.3 |     430 |        — |       0.75 | **erratic stalls** (runs collapsing to 13 and 3.6 tok/s) — rejected |
+| **n=3, s=16** |    91.4 |     449 |  **592** |   **0.99** | **production** |
+
+vs Qwen3.6 production record: ~530 agg @ N=8, ~118 tok/s single-stream.
+Qwen3.8 wins aggregate (+12% at its higher ceiling) and efficiency but loses
+single-stream: its MTP head is a *single* layer applied recursively for n>1
+(vLLM warns about this), so per-position acceptance decays 0.83/0.71/0.61 and
+overall acceptance is ~0.6 vs 3.6's 0.85–0.92. n=3 is the sweet spot; n=4's
+stalls had no logged cause and are disqualifying regardless.
+
+## Soak
+
+40 iterations of agent N=4 (2026-08-15, `benchmarks/results/qwen38_soak.jsonl`;
+16 iters against the pre-promotion manual server, 24 against the live systemd
+service): **0 errors**, agg 272–288 tok/s throughout (one transient dip to 243
+with a single 8.5s TTFT p95 blip, self-recovered), VRAM flat at 88.0GB (no
+creep), thermals stabilized at 85–86C / ~510W.
+
+## Production config
+
+`scripts/start-vllm-38-27b-fp8.sh`: 262K max-model-len, `--max-num-seqs 16`,
+FP8 KV (`fp8_e4m3`), MTP n=3, `--reasoning-parser qwen3`, `--tool-call-parser
+qwen3_xml` (alias of `qwen3_coder` in vLLM 0.27.1). ~88GB VRAM. Rollback =
+point systemd `ExecStart` back at `start-vllm-27b-fp8.sh`.

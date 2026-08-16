@@ -27,21 +27,27 @@ sys.path.insert(0, str(Path(__file__).parent))
 from bench_serving import FILLER_BASE, tokenize  # noqa: E402
 
 
+# Qwen-recommended thinking-mode sampling for Qwen3.8 (production default
+# since 2026-08-15): temp 1.0 / top_p 0.95. For Qwen3.6 runs pass
+# --temperature 0.6. Greedy (temp 0) sends these models into
+# endless-reasoning loops — observed 54K+ thinking tokens on a simple task.
+TEMPERATURE = 1.0
+TOP_P = 0.95
+
+
 def chat(base_url: str, prompt: str, timeout_s: int = 900) -> str:
     """Non-streaming completion; returns final content (reasoning stripped).
 
-    Sampling: Qwen's recommended thinking-mode settings (temp 0.6, top_p
-    0.95). Greedy (temp 0) sends this model into endless-reasoning loops —
-    observed 54K+ thinking tokens on a simple coding task. The 16K cap makes
-    runaway reasoning terminate; a capped answer scores as a failure, which
-    is the intended gate semantic (unusable in practice = fail).
+    The 16K cap makes runaway reasoning terminate; a capped answer scores as
+    a failure, which is the intended gate semantic (unusable in practice =
+    fail).
     """
     body = {
         "model": "local",
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "temperature": 0.6,
-        "top_p": 0.95,
+        "temperature": TEMPERATURE,
+        "top_p": TOP_P,
         "max_tokens": 16384,
     }
     req = urllib.request.Request(
@@ -242,6 +248,7 @@ def check_synth(text: str) -> bool:
 # ----------------------------------------------------------------------------
 
 def main():
+    global TEMPERATURE, TOP_P
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", required=True)
     ap.add_argument("--port", type=int, default=5000)
@@ -249,7 +256,10 @@ def main():
     ap.add_argument("--json", help="append one JSON line per config run")
     ap.add_argument("--retry-failed", action="store_true", default=True,
                     help="retry each failed task once (flake allowance)")
+    ap.add_argument("--temperature", type=float, default=TEMPERATURE)
+    ap.add_argument("--top-p", type=float, default=TOP_P)
     args = ap.parse_args()
+    TEMPERATURE, TOP_P = args.temperature, args.top_p
     base_url = args.base_url or f"http://localhost:{args.port}"
 
     results: dict[str, bool] = {}
