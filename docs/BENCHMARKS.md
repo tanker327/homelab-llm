@@ -326,10 +326,13 @@ unless noted. Raw data: `qwen38_nvfp4_bench.jsonl`, `qwen38_nvfp4_quality.jsonl`
 
 Agent workload, 3-run medians, same flags (MTP n=3, FP8 KV, 262K, s=16):
 
-| config | N=1 dec p50 | N=8 agg | N=16 agg | accept | tok/J @max | VRAM |
-|--------|------------:|--------:|---------:|-------:|-----------:|-----:|
-| FP8 (production) | 91.4 | 449 | 592 | ~0.6 | 0.99 | 88.0G |
-| **NVFP4-Inferact** | **128.9 (+41%)** | **563 (+25%)** | **676 (+14%)** | 0.89–0.97 | 1.19 | 87.8G |
+| config | N=1 dec p50 | N=8 agg (per-stream) | N=16 agg (per-stream) | accept | tok/J @max | VRAM |
+|--------|------------:|---------------------:|----------------------:|-------:|-----------:|-----:|
+| FP8 (production) | 91.4 | 449 (~78) | 592 (~54) | ~0.6 | 0.99 | 88.0G |
+| **NVFP4-Inferact** | **128.9 (+41%)** | **563 (+25%)** (99.7) | **676 (+14%)** (71.6) | 0.89–0.97 | 1.19 | 87.8G |
+
+NVFP4 TTFT p50: 1.11s @ N=1, 6.31s @ N=8 (p95 9.0s), 10.9s @ N=16 (p95
+18.2s) — comparable to FP8 at the same loads.
 
 Quality: 10/10 smoke, NIAH/synthesis included. Coding-task success (bench_effort
 medium+low ×3): 32/36 (89%) vs FP8's 29/32 (91%) — parity within noise; every
