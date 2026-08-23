@@ -3,6 +3,24 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-08-23 — Uncensored-FP8 trial ended; production back on NVFP4
+
+`orcarouter/Qwen3.8-27B-Uncensored-FP8` (abliterated community build of
+Qwen3.8-27B) ran as the production engine 2026-08-22→23 via
+`production-engine.conf`, then production was reverted to
+`start-vllm-38-27b-nvfp4.sh` (verified healthy, smoke-tested).
+
+- **Model and launcher are kept** for future on-demand use:
+  `models/Qwen3.8-27B-Uncensored-FP8/` (~29GB) +
+  `scripts/start-vllm-38-27b-uncensored-fp8.sh` (same flags as the FP8
+  production launcher: MTP n=3, FP8 KV, 262K, 16 seqs; vision tower intact).
+  Unlike the official FP8 build, its MTP head lives in the main shards
+  (no separate `mtp.safetensors`) — spec decoding confirmed working.
+- **To run it again**: put `start-vllm-38-27b-uncensored-fp8.sh` on the
+  non-comment line of `scripts/production-engine.conf`, then
+  `sudo systemctl restart llama-server`. Revert the same way
+  (`start-vllm-38-27b-nvfp4.sh`).
+
 ## 2026-08-16 — NVFP4 becomes production engine; engine selection via conf file
 
 NVFP4 (Inferact modelopt export) beat the FP8 default on identical flags in
