@@ -1,38 +1,36 @@
-# Homelab LLM Server (Qwen3.6 on RTX PRO 6000)
+# Homelab LLM Server (Qwen3.8 on RTX PRO 6000)
 
-Local LLM inference on an RTX PRO 6000 Blackwell (96GB VRAM) via llama.cpp, exposing an OpenAI-compatible API. The production default is the **agent stack** — both Qwen3.6 models resident at once:
+Local LLM inference on an RTX PRO 6000 Blackwell (96GB VRAM, SM120) exposing an OpenAI-compatible API on port 5000. Production is **vLLM 0.27.1 serving Qwen3.8-27B-NVFP4** with MTP speculative decoding (n=3) and FP8 KV cache — 262K context per request, 16 concurrent sequences, ~88GB VRAM.
 
-| Port | Model | Role | Speed | Slots × ctx |
+| Engine (via `scripts/production-engine.conf`) | Model | Notes | Agg @ N=16 | Single-stream |
 |---|---|---|---|---|
-| 5000 | `Qwen3.6-35B-A3B` (MoE, MXFP4, MTP) | workers / general chat | ~418 tok/s | 3 × 128K |
-| 5001 | `Qwen3.6-27B` (dense, Q8_0, MTP) | planner / judge, best quality | ~139 tok/s | 2 × 128K |
+| `start-vllm-38-27b-nvfp4.sh` **(production)** | Qwen3.8-27B-NVFP4-Inferact | fastest; **text-only** | ~676 tok/s | ~129 tok/s |
+| `start-vllm-38-27b-fp8.sh` | Qwen3.8-27B-FP8 | vision-capable fallback | ~592 tok/s | ~91 tok/s |
+| `start-vllm-38-27b-uncensored-fp8.sh` | Qwen3.8-27B-Uncensored-FP8 (orcarouter) | abliterated build, on-demand | — | — |
+| `start-vllm-27b-fp8.sh` | Qwen3.6-27B-FP8 | deeper rollback (2026-08-12 bake-off winner) | ~530 @ N=8 | ~118 tok/s |
 
-Total footprint ~77GB. Both use MTP speculative decoding (`--spec-type draft-mtp`). Full measurements are in [docs/BENCHMARKS.md](./docs/BENCHMARKS.md); system-level changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+**To switch engines** (e.g. NVFP4 ↔ FP8 when vision is needed): edit the one non-comment line in `scripts/production-engine.conf`, then `sudo systemctl restart llama-server`. Full measurements are in [docs/BENCHMARKS.md](./docs/BENCHMARKS.md); system-level changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+
+The former llama.cpp production setups (two-model agent stack, single 27B/35B) remain as manual launchers — see [CLAUDE.md](./CLAUDE.md).
 
 ## Quick Start
 
 ```bash
-# One-time setup (builds llama.cpp, downloads models)
+# One-time setup (builds llama.cpp, downloads GGUFs; vLLM lives in vllm-venv/, set up separately)
 ./scripts/setup.sh
 
-# Start the agent stack (what systemd runs in production)
-./scripts/start-agent-stack.sh
+# Start production manually (what systemd runs — execs the launcher named in production-engine.conf)
+./scripts/start-production.sh
 
-# Or a single model with the full 262K context per request:
-./scripts/start-llama-27b.sh        # dense 27B Q8_0, best quality
-./scripts/start-llama-35b-moe.sh    # 35B MoE, fastest
+# Manual llama.cpp alternatives:
+./scripts/start-agent-stack.sh      # former default: 35B MoE on 5000 + 27B Q8_0 on 5001 (~77GB)
+./scripts/start-llama-27b.sh        # dense 27B Q8_0 MTP, 262K ctx (~64GB)
+./scripts/start-llama-35b-moe.sh    # 35B-A3B MoE, fastest llama.cpp option
 ```
 
-Only one launcher can own port 5000 at a time; stop the systemd service first (`sudo systemctl stop llama-server`) before running one manually, and leave ~10s between stop and start so VRAM is released.
+Only one engine can own port 5000 at a time (and production plus a second model won't fit in VRAM). Stop the service first (`sudo systemctl stop llama-server`), wait ~10s for VRAM release, then launch. vLLM takes ~2–3 min to become healthy (`curl localhost:5000/health` → 200); llama.cpp ~5s.
 
 ## Usage
-
-### Web UI
-
-- http://192.168.10.106:5000 — 35B workers
-- http://192.168.10.106:5001 — 27B planner/judge
-
-(Port 5001 needs its own firewall rule — see [CHANGELOG.md](./CHANGELOG.md).)
 
 ### CLI Chat
 
@@ -46,35 +44,47 @@ Only one launcher can own port 5000 at a time; stop the systemd service first (`
 ./venv/bin/python clients/orchestrate.py "your task"   # --mode bestof, --workers N
 ```
 
-Plans on the 27B, fans out to 3 parallel 35B workers, judges on the 27B.
+All stages run against the single production model on :5000.
 
 ### API (OpenAI-compatible)
 
 ```bash
 curl http://192.168.10.106:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "Qwen3.6-35B-A3B",
-       "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "local",
+       "messages": [{"role": "user", "content": "Hello"}],
+       "chat_template_kwargs": {"reasoning_effort": "medium"}}'
 ```
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://192.168.10.106:5000/v1", api_key="none")
 response = client.chat.completions.create(
-    model="Qwen3.6-35B-A3B",   # accepted but ignored — each port serves one model
-    messages=[{"role": "user", "content": "Hello"}]
+    model="local",   # required — vLLM validates the model name
+    messages=[{"role": "user", "content": "Hello"}],
+    extra_body={"chat_template_kwargs": {"reasoning_effort": "medium"}},
 )
 ```
 
-`/v1/models` reports clean alias names (`Qwen3.6-35B-A3B`, `Qwen3.6-27B`), not file paths. Note: `max_tokens` is unreliable on llama.cpp's chat endpoint with thinking models — omit it or use `stop` sequences. See [docs/API.md](./docs/API.md) for full endpoint documentation.
+Things that matter:
 
-### Benchmark concurrency
+- **`model` must be `"local"`** — vLLM rejects other names (llama.cpp ignored the field, which is why stale names used to go unnoticed).
+- **Send `reasoning_effort: "medium"`** (or `low`) — the chat-template default is `xhigh`, which burns ~10× tokens for no measured quality gain.
+- **Never use temperature 0** — greedy decoding produces unbounded thinking loops. Qwen3.8 thinking mode: temp 1.0 / top_p 0.95 / top_k 20.
+- Chain-of-thought arrives in the **`reasoning`** field on vLLM (not `reasoning_content`).
+- Vision (base64 `image_url`, FP8 engine only) and tool calling work as-is.
+- vLLM serves no web UI at `/` (the old llama.cpp UI only exists on the manual launchers).
+
+See [docs/API.md](./docs/API.md) for full endpoint documentation.
+
+### Benchmarks
 
 ```bash
-./venv/bin/python benchmarks/bench_concurrency.py
+./venv/bin/python benchmarks/bench_serving.py --label x --port 5000 --workload agent --levels 1,4,8 --runs 3
+./venv/bin/python benchmarks/quality_smoke.py     # 10-task pass/fail quality gate
 ```
 
-Fires 1, 2, 4, 6, 8, 10 parallel requests and reports aggregate + per-request tok/s. See [docs/CONCURRENCY.md](./docs/CONCURRENCY.md) for the tuning results.
+`bench_serving.py` is the main harness (streaming TTFT p50/p95, GPU power/VRAM sampling, tok/J, MTP acceptance). The 2026-08 bake-off record lives in `benchmarks/results/` and [docs/BENCHMARKS.md](./docs/BENCHMARKS.md).
 
 ## Production Service (systemd)
 
@@ -88,25 +98,25 @@ sudo systemctl enable --now llama-server
 Manage:
 ```bash
 sudo systemctl status llama-server    # Check status
-sudo systemctl restart llama-server   # Restart (both models)
+sudo systemctl restart llama-server   # Restart (also how you apply an engine switch)
 journalctl -u llama-server -f         # Live logs
 ```
 
-The service auto-starts on boot and auto-restarts on crash (5s delay). It runs `start-agent-stack.sh`; if either of the two servers dies, the stack exits and systemd relaunches the pair together. Alternative engines (vLLM, SGLang) and other model launchers are documented in [CLAUDE.md](./CLAUDE.md).
+The unit keeps its historical `llama-server` name but runs `scripts/start-production.sh`, which execs whichever launcher `scripts/production-engine.conf` names. Auto-starts on boot, auto-restarts on crash.
 
 ## Context Window vs Concurrency
 
-llama.cpp's `--ctx-size` is the **total** KV cache, divided across `--parallel` slots — the stack's 128K per request comes from that split. The models natively support 262K; the single-model `start-llama-27b.sh` provides it (2 × 262K, ~32GB KV cache). To get 262K per slot inside the stack, trade concurrency: 35B `--ctx-size 524288 --parallel 2`, 27B `--parallel 1` (~+3GB).
+Each request gets up to **262,144 tokens** (prompt + reasoning + output combined — the model's native window). Qwen3.8's hybrid architecture (48 of 64 layers are Gated-DeltaNet linear attention; only 16 full-attention layers hold KV) means the FP8 KV cache pool holds ~1.55M tokens, so 16 concurrent sequences are practical. Requests beyond 16 queue and are admitted as slots free up. A 1M-context YaRN config was probed and works (needle-pass at 980K) but is prefill-bound — special occasions only; flags in BENCHMARKS.md.
 
 ## Requirements
 
-- NVIDIA GPU with 96GB VRAM for the agent stack (single 35B fits in 24GB — the repo originally targeted an RTX 4090, and the launchers note the old settings)
-- CUDA toolkit, cmake, build-essential
-- ~60GB disk for the two production GGUFs + llama.cpp build
+- NVIDIA GPU with 96GB VRAM for the production config (the repo originally targeted an RTX 4090 — a ~4-bit 27B at reduced context is the realistic 24GB deployment)
+- CUDA 13.1 toolkit, cmake, build-essential; `ninja` for flashinfer JIT
+- ~90GB disk for the vLLM safetensors models + GGUFs + llama.cpp build
 
 ## Models
 
-- [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) — MXFP4_MOE with MTP head, 35B total / 3B active per token, ~20GB
-- Qwen3.6-27B Q8_0 with MTP head — dense, near-lossless quant, ~29GB
+- [Qwen3.8-27B](https://huggingface.co/Qwen) — hybrid GDN/full-attention 27B, Apache 2.0, MTP head for speculative decoding: NVFP4 (Inferact modelopt, production), FP8 (official, vision fallback), Uncensored-FP8 (orcarouter community build)
+- Qwen3.6-27B-FP8 — rollback; Qwen3.6 GGUFs (27B Q8_0, 35B-A3B MXFP4_MOE) for the llama.cpp launchers
 
-Both run in thinking mode (`--reasoning-format deepseek`): responses split into `reasoning_content` and `content`.
+All run in thinking mode: MTP speculative decoding is the whole ballgame for the dense 27B (~50 tok/s base decode → 2.4–2.6× with n=3).
