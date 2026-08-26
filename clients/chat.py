@@ -4,8 +4,9 @@
 Commands: quit, clear, effort <low|medium|xhigh|off>.
 
 Per the 2026-08-16 reasoning-effort sweep (docs/BENCHMARKS.md): low/medium
-match xhigh's pass rate on coding tasks at ~1/10th the tokens and latency,
-so the client defaults to medium instead of the chat template's xhigh.
+match xhigh's pass rate on coding tasks at ~1/10th the tokens and latency.
+Since 2026-08-26 the server itself defaults to low (launchers pass
+--default-chat-template-kwargs), and this client matches that default.
 Reasoning is echoed back into history as `reasoning_content` so the
 template's preserve_thinking (default on) actually works across turns —
 the OpenAI SDK drops it otherwise.
@@ -14,7 +15,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://localhost:5000/v1", api_key="none")
 messages = []
-effort = "medium"
+effort = "low"
 
 # Official Qwen3.8 sampling — thinking and non-thinking modes differ.
 THINKING_SAMPLING = {"temperature": 1.0, "top_p": 0.95}

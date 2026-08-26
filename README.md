@@ -52,8 +52,7 @@ All stages run against the single production model on :5000.
 curl http://192.168.10.106:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "local",
-       "messages": [{"role": "user", "content": "Hello"}],
-       "chat_template_kwargs": {"reasoning_effort": "medium"}}'
+       "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ```python
@@ -62,6 +61,7 @@ client = OpenAI(base_url="http://192.168.10.106:5000/v1", api_key="none")
 response = client.chat.completions.create(
     model="local",   # required — vLLM validates the model name
     messages=[{"role": "user", "content": "Hello"}],
+    # optional: override the server's default reasoning effort (low)
     extra_body={"chat_template_kwargs": {"reasoning_effort": "medium"}},
 )
 ```
@@ -69,7 +69,7 @@ response = client.chat.completions.create(
 Things that matter:
 
 - **`model` must be `"local"`** — vLLM rejects other names (llama.cpp ignored the field, which is why stale names used to go unnoticed).
-- **Send `reasoning_effort: "medium"`** (or `low`) — the chat-template default is `xhigh`, which burns ~10× tokens for no measured quality gain.
+- **Reasoning effort defaults to `low` server-side** (since 2026-08-26 the launchers pass `--default-chat-template-kwargs`) — the chat template's own `xhigh` default burned ~10× tokens for no measured quality gain. Send `chat_template_kwargs: {"reasoning_effort": "medium"|"xhigh"}` per request to override.
 - **Never use temperature 0** — greedy decoding produces unbounded thinking loops. Qwen3.8 thinking mode: temp 1.0 / top_p 0.95 / top_k 20.
 - Chain-of-thought arrives in the **`reasoning`** field on vLLM (not `reasoning_content`).
 - Vision (base64 `image_url`, FP8 engine only) and tool calling work as-is.

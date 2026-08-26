@@ -35,12 +35,12 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-# Qwen3.8 official thinking-mode sampling; reasoning_effort medium matches
+# Qwen3.8 official thinking-mode sampling; reasoning_effort low/medium match
 # xhigh's coding pass rate at ~1/10th the tokens (2026-08-16 sweep, see
-# docs/BENCHMARKS.md), so all roles default to medium instead of the chat
-# template's xhigh.
+# docs/BENCHMARKS.md). All roles default to low, matching the server-side
+# default set on 2026-08-26 (--default-chat-template-kwargs in the launchers).
 def chat(client: OpenAI, prompt: str, system: str | None = None,
-         effort: str = "medium") -> str:
+         effort: str = "low") -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -105,8 +105,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=3, help="number of parallel workers")
     ap.add_argument("--mode", choices=["decompose", "bestof"], default="decompose")
     ap.add_argument("--show-work", action="store_true", help="print plan and worker output")
-    ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="medium",
-                    help="worker reasoning effort (planner/judge stay at medium)")
+    ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="low",
+                    help="worker reasoning effort (planner/judge stay at low)")
     args = ap.parse_args()
 
     if args.mode == "bestof":

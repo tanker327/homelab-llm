@@ -276,6 +276,14 @@ defaults changed to `reasoning_effort: medium` (chat.py adds an
 planner/judge stay medium). Pass-rate deltas among thinking levels are within
 noise at this sample size; the cost deltas are not.
 
+**Update 2026-08-26:** the default moved server-side and down to `low` — all
+three Qwen3.8 vLLM launchers now pass
+`--default-chat-template-kwargs '{"reasoning_effort":"low"}'`, so bare
+requests get `low` instead of the template's `xhigh`; per-request
+`chat_template_kwargs` still overrides (verified via `/tokenize`: bare ==
+explicit low, != xhigh). chat.py and orchestrate.py defaults moved
+medium → low to match.
+
 ## Feature verification on the production config
 
 - **Vision works as-is** (plan Phase 10): PNG UI screenshot via base64

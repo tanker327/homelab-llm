@@ -31,4 +31,5 @@ exec "$DIR/vllm-venv/bin/vllm" serve "$DIR/models/Qwen3.8-27B-FP8" \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_xml \
   --kv-cache-dtype fp8_e4m3 \
+  --default-chat-template-kwargs '{"reasoning_effort":"low"}' \
   --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
