@@ -1,5 +1,10 @@
 # Concurrency & `--parallel` Tuning
 
+> **Note (2026-08-28):** the measurements below are for the Qwen3.6 GGUFs
+> (manual launchers). The current llama.cpp production engine (Flash-Next
+> 177B MoE) has its own concurrency profile — ~130 agg tok/s plateau at N=4,
+> see the 2026-08-28 addendum in BENCHMARKS.md.
+
 How many simultaneous requests llama.cpp can serve and where the GPU's sweet
 spot sits. Measured with `benchmarks/bench_matrix.py` (adds GPU power/temp/util
 sampling); the older `benchmarks/bench_concurrency.py` reports the same

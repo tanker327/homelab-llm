@@ -1,12 +1,14 @@
 # API Documentation
 
-The server provides an OpenAI-compatible API. Under the production agent stack there are two endpoints, one model each:
+The server provides an OpenAI-compatible API. Production (since 2026-08-28) is **llama.cpp serving Qwen3.8-Flash-Next-Uncensored** (262K context, vision, thinking mode) on a single endpoint.
 
-**Base URLs:** `http://localhost:5000` — `Qwen3.6-35B-A3B` (MoE workers); `http://localhost:5001` — `Qwen3.6-27B` (dense planner/judge). From the LAN: `http://192.168.10.106:5000` / `:5001`.
+**Base URL:** `http://localhost:5000` — from the LAN: `http://192.168.10.106:5000`. (Port 5001 exists only under the manual two-model agent stack.)
 
 **Authentication:** None required (`api_key` can be any string).
 
-**Model name:** reported by `/v1/models` as the launcher's `--alias` (e.g. `Qwen3.6-35B-A3B`). The `model` field in requests is accepted but ignored — each port serves exactly one model. Examples below use port 5000; everything applies identically to 5001.
+**Model name:** always send `"local"`. The llama.cpp production engine accepts any string (it reports the launcher's `--alias local` via `/v1/models`), but the vLLM fallback engines (NVFP4/FP8 27B) **reject** names other than `local` — hardcoding `"local"` works across every engine.
+
+**Engine differences to know:** this doc describes the llama.cpp production engine. When the conf is switched to a vLLM engine: chain-of-thought arrives in `reasoning` instead of `reasoning_content`, `max_tokens` works correctly on chat completions, and the `model` field is validated. Everything else is identical.
 
 ---
 
@@ -29,8 +31,9 @@ Generate a chat response from a conversation.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `model` | string | required | Model name (use any string, only one model is loaded) |
+| `model` | string | required | Always `"local"` (see Model name note above) |
 | `messages` | array | required | Conversation messages (see [Message Format](#message-format)) |
+| `chat_template_kwargs` | object | — | Template overrides, e.g. `{"reasoning_effort": "low"}` to clamp thinking (`"minimal"` is not valid) |
 | `temperature` | float | 1.0 | Sampling temperature (0.0 = deterministic, higher = more random) |
 | `top_p` | float | 0.95 | Nucleus sampling threshold |
 | `top_k` | integer | 20 | Top-k sampling (limits to k most likely tokens) |
@@ -49,7 +52,9 @@ Each message in the `messages` array has:
 | Field | Type | Description |
 |---|---|---|
 | `role` | string | One of: `system`, `user`, `assistant` |
-| `content` | string | The message content |
+| `content` | string or array | Plain text, or an array of content parts for vision |
+
+For vision (production supports it — the mmproj loads by default), `content` is an array mixing `{"type": "text", "text": ...}` and `{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}` parts.
 
 ### Example Request
 
@@ -57,7 +62,7 @@ Each message in the `messages` array has:
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.6-35B-A3B",
+    "model": "local",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "What is 2+2?"}
@@ -74,7 +79,7 @@ curl http://localhost:5000/v1/chat/completions \
   "id": "chatcmpl-9CIRokWgbwRyNhk1CFDRphXXPlipmEGu",
   "object": "chat.completion",
   "created": 1772913014,
-  "model": "Qwen3.6-35B-A3B",
+  "model": "local",
   "system_fingerprint": "b8233-c5a778891",
   "choices": [
     {
@@ -146,7 +151,7 @@ Set `"stream": true` to receive Server-Sent Events.
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.6-35B-A3B",
+    "model": "local",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": true
   }'
@@ -212,7 +217,7 @@ Raw text completion (no chat formatting).
 curl http://localhost:5000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.6-35B-A3B",
+    "model": "local",
     "prompt": "The capital of Japan is",
     "max_tokens": 20,
     "temperature": 0.0
@@ -226,7 +231,7 @@ curl http://localhost:5000/v1/completions \
   "id": "chatcmpl-iQYfRSVI5TqN9NkoFgYXMsFEvKqKGfgc",
   "object": "text_completion",
   "created": 1772913029,
-  "model": "Qwen3.6-35B-A3B",
+  "model": "local",
   "choices": [
     {
       "index": 0,
@@ -268,17 +273,18 @@ curl http://localhost:5000/v1/models
   "object": "list",
   "data": [
     {
-      "id": "Qwen3.6-35B-A3B",
+      "id": "local",
       "object": "model",
-      "created": 1772909155,
+      "created": 1787937772,
       "owned_by": "llamacpp",
       "meta": {
-        "vocab_type": 2,
         "n_vocab": 248320,
+        "n_ctx": 262144,
         "n_ctx_train": 262144,
-        "n_embd": 2048,
-        "n_params": 34660610688,
-        "size": 22005033472
+        "n_embd": 2560,
+        "n_params": 176943899520,
+        "size": 97462131200,
+        "ftype": "IQ4_XS - 4.25 bpw"
       }
     }
   ]
@@ -318,7 +324,7 @@ client = OpenAI(
 
 # Non-streaming
 response = client.chat.completions.create(
-    model="Qwen3.6-35B-A3B",
+    model="local",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Explain gravity in one sentence."},
@@ -329,7 +335,7 @@ print(response.choices[0].message.content)
 
 # Streaming
 stream = client.chat.completions.create(
-    model="Qwen3.6-35B-A3B",
+    model="local",
     messages=[{"role": "user", "content": "Hello"}],
     stream=True,
 )
@@ -347,7 +353,7 @@ const response = await fetch("http://192.168.10.106:5000/v1/chat/completions", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    model: "Qwen3.6-35B-A3B",
+    model: "local",
     messages: [{ role: "user", content: "Hello" }],
   }),
 });
@@ -366,7 +372,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "Qwen3.6-35B-A3B",
+  model: "local",
   messages: [{ role: "user", content: "Hello" }],
 });
 console.log(response.choices[0].message.content);
@@ -378,7 +384,7 @@ console.log(response.choices[0].message.content);
 curl http://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen3.6-35B-A3B",
+    "model": "local",
     "messages": [
       {"role": "system", "content": "You are a coding assistant."},
       {"role": "user", "content": "Write a hello world in Python"},
@@ -396,8 +402,10 @@ curl http://localhost:5000/v1/chat/completions \
 
 2. **Token counts include thinking** — `usage.completion_tokens` includes both `reasoning_content` and `content` tokens. Actual visible response is shorter than the token count suggests.
 
-3. **Context window** — Server is configured with 96K tokens (98,304). The model supports up to 262K tokens in theory, but VRAM limits practical max to 112K on a 24GB RTX 4090.
+3. **Context window** — The full native 262,144 tokens (prompt + reasoning + output combined) is served, verified by needle retrieval to 261K. Four server slots share a unified KV pool.
 
-4. **Single model** — Only one model is loaded at a time. The `model` field in requests is accepted but ignored (the loaded model always responds).
+4. **Concurrency** — Tuned for 1–4 concurrent users; aggregate throughput plateaus ~130 tok/s at N=4 and queueing grows sharply beyond that. For wide agent fleets, switch `production-engine.conf` to the NVFP4 vLLM engine.
 
-5. **No embeddings endpoint** — llama-server does not serve `/v1/embeddings`.
+5. **Single model** — Only one model is loaded at a time. The llama.cpp engine ignores the `model` field (but always send `"local"` for vLLM-engine compatibility).
+
+6. **No embeddings endpoint** — llama-server does not serve `/v1/embeddings`.

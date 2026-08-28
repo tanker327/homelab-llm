@@ -3,6 +3,23 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-08-28 — Production switched to Qwen3.8-Flash-Next-Uncensored (llama.cpp)
+
+`production-engine.conf` now names `start-llama-flashnext.sh`: llama.cpp
+(master 2026-08-28, qwen4exp/PR #27742, rebuilt for SM120) serving
+`orcarouter/Qwen3.8-Flash-Next-Uncensored` IQ4_XS (97.5GB GGUF, 177B MoE,
+6B active) at full 262K context with vision (mmproj) on. ~75-76GB VRAM;
+the 51B PLE n-gram table is mmap'd host-side (page cache), which is why
+this fits where the 2026-08-27 SGLang attempt needed 128GB RAM.
+
+- Single-user profile: ~109 tok/s single-stream (no MTP), but aggregate
+  plateaus ~130 tok/s at N=4 — for agent-fleet loads switch the conf line
+  back to `start-vllm-38-27b-nvfp4.sh` (676 agg @ N=16) and restart.
+- Cold-from-disk service start can take ~10-25 min before :5000 is healthy
+  (~20s when page cache is warm). systemd unit unchanged (Type=simple).
+- Bake-off record (vs Q4_K_M, which fits at 89.7GB but measured no better):
+  docs/BENCHMARKS.md 2026-08-28 addendum. Q4_K_M shards kept on disk.
+
 ## 2026-08-23 — Uncensored-FP8 trial ended; production back on NVFP4
 
 `orcarouter/Qwen3.8-27B-Uncensored-FP8` (abliterated community build of

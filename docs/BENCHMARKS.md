@@ -378,3 +378,36 @@ NVFP4 + `--max-model-len 1010000 --max-num-seqs 4` + YaRN factor 4.0 via
 starts clean, KV capacity 1.74M tokens (1.72× concurrency at 1M). Needle at
 25% depth: **PASS at 500K (245s wall)** and **PASS at 980K (851s wall,
 prefill-dominated)**. Viable as a special-occasion config; not daily (TTFT).
+
+## 2026-08-28 addendum: Qwen3.8-Flash-Next-Uncensored (177B MoE) on llama.cpp — GGUF route works where SGLang couldn't
+
+The 2026-08-27 SGLang-fork attempt was RAM-blocked (48GB pinned PLE table vs
+58GB host RAM). llama.cpp's qwen4exp support (PR #27742, merged 2026-08-27)
+**mmaps** the ~51B-param PLE n-gram table instead of pinning it, so the table
+lives in page cache and never enters VRAM: the GPU-resident part of the
+97.5GB IQ4_XS is only ~66GB. Model: orcarouter abliterated build, 125B
+transformer + 51B PLE + (no MTP head in GGUF), 6B active/token, hybrid GDN
+3-of-4 layers + QSA. Launcher: `scripts/start-llama-flashnext.sh`.
+
+**IQ4_XS vs Q4_K_M bake-off (agent workload 12K in / 2K out, 3 runs):**
+
+| quant | file | VRAM @262K | N=1 agg | N=1 dec p50 | N=4 agg | N=8 agg | prefill N=1 | quality gate |
+|-------|-----:|-----------:|--------:|------------:|--------:|--------:|------------:|-------------:|
+| IQ4_XS (winner) | 97.5GB | 75.2GB (21GB free) | ~89 | ~109 | ~134 | ~126 | ~3000 | 10/10 |
+| Q4_K_M | 119GB | 89.7GB (6.5GB free) | ~87 | ~107 | ~113 | ~118 | ~2960 | 10/10 |
+
+- **Full native 262K context fits** (16K→262K costs only ~8GB VRAM thanks to
+  GDN/QSA). probe_max_input: max accepted+NIAH-correct prompt **261,648 tok**;
+  decode ~27 tok/s and prefill ~1700 tok/s at 260K depth. VRAM flat at 75.2GB
+  during 260K prefills.
+- **Single-stream 109 tok/s with no MTP** — near production NVFP4's 129
+  (which needs MTP n=3). But concurrency plateaus ~130 agg at N=4 and TTFT
+  p95 hits ~81s at N=8 (4 slots, prefill-blocking): a quality/long-context/
+  single-user engine, **not** an agent-fleet engine (NVFP4: 676 agg @ N=16).
+- Vision works via mmproj (`FLASHNEXT_VISION=1`, +~1GB, 76.4GB total @262K).
+- Template default reasoning effort is moderate (unlike 27B's xhigh) but can
+  spike on creative tasks (11K thinking tokens observed once); per-request
+  `chat_template_kwargs {"reasoning_effort":"low"}` works ("minimal" 500s).
+- Cold load: IQ4_XS ~20s warm page cache, up to ~28min cold-from-disk (119GB
+  Q4_K_M measured); budget minutes for first load after other models ran.
+- JSONLs: `benchmarks/results/flashnext-{iq4xs,q4km}-{agent,quality}.jsonl`.
