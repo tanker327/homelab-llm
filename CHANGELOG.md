@@ -3,6 +3,21 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-08-30 — Production switched back to NVFP4 (vLLM) for agent-fleet loads
+
+`production-engine.conf` now names `start-vllm-38-27b-nvfp4.sh` again:
+vLLM 0.27.1 serving `Qwen3.8-27B-NVFP4-Inferact` at 262K context with
+MTP n=3 + FP8 KV cache, 16 seqs, ~88GB VRAM. Reasoning effort stays `low`
+(launcher's `--default-chat-template-kwargs '{"reasoning_effort":"low"}'`);
+per-request `chat_template_kwargs` still overrides it.
+
+- Reason: Flash-Next's aggregate throughput plateaus ~130 tok/s at N=4;
+  NVFP4 does ~676 agg @ N=16 and ~129 tok/s single-stream.
+- Trade-off re-accepted: this checkpoint is **text-only** on vLLM 0.27.1
+  (no vision). Use `start-vllm-38-27b-fp8.sh` when vision is needed, or
+  `start-llama-flashnext.sh` for vision + uncensored single-stream.
+- Flash-Next model and launcher stay on disk, one conf line away.
+
 ## 2026-08-28 — Production switched to Qwen3.8-Flash-Next-Uncensored (llama.cpp)
 
 `production-engine.conf` now names `start-llama-flashnext.sh`: llama.cpp
