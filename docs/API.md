@@ -33,7 +33,7 @@ Generate a chat response from a conversation.
 |---|---|---|---|
 | `model` | string | required | Always `"local"` (see Model name note above) |
 | `messages` | array | required | Conversation messages (see [Message Format](#message-format)) |
-| `chat_template_kwargs` | object | — | Template overrides, e.g. `{"reasoning_effort": "low"}` to clamp thinking (`"minimal"` is not valid) |
+| `chat_template_kwargs` | object | server pins `medium` | Template overrides, e.g. `{"reasoning_effort": "low"}` to clamp thinking. Only `xhigh`, `medium`, `low` are valid |
 | `temperature` | float | 1.0 | Sampling temperature (0.0 = deterministic, higher = more random) |
 | `top_p` | float | 0.95 | Nucleus sampling threshold |
 | `top_k` | integer | 20 | Top-k sampling (limits to k most likely tokens) |

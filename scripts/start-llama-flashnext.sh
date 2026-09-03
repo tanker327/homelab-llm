@@ -15,7 +15,8 @@
 # Concurrency plateaus ~130 agg tok/s at N=4 — single-user engine, not a fleet
 # engine (for agent fleets switch the conf back to start-vllm-38-27b-nvfp4.sh).
 # Vision (mmproj, +~1GB) is ON by default; FLASHNEXT_VISION=0 disables.
-# Template accepts per-request chat_template_kwargs {"reasoning_effort":"low"}.
+# Template default is xhigh; launcher pins medium via --chat-template-kwargs.
+# Per-request chat_template_kwargs overrides it; valid: xhigh, medium, low.
 # Cold-from-disk load can take ~10-25 min (page cache empty); ~20s warm.
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,4 +38,5 @@ exec "$DIR/llama.cpp/build/bin/llama-server" \
   --flash-attn on \
   --jinja \
   --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 \
-  --reasoning-format deepseek
+  --reasoning-format deepseek \
+  --chat-template-kwargs '{"reasoning_effort":"medium"}'

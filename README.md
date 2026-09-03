@@ -71,7 +71,7 @@ Things that matter:
 
 - **Always send `model: "local"`** — the llama.cpp production engine ignores the field, but the vLLM fallback engines reject other names, so hardcoding `"local"` works across every engine.
 - **Omit `max_tokens` on the production engine** (or disable thinking) — llama.cpp still truncates mid-reasoning and returns empty content or 500s. The vLLM engines handle it correctly.
-- **Reasoning effort**: Flash-Next's template default is moderate (no server-side override needed, unlike the 27B vLLM launchers which pass `low`), but it can spike on open-ended tasks — send `chat_template_kwargs: {"reasoning_effort": "low"}` per request to clamp it.
+- **Reasoning effort**: all launchers pin `medium` server-side (vLLM `--default-chat-template-kwargs`, llama.cpp `--chat-template-kwargs`), overriding the template's `xhigh` default. Send `chat_template_kwargs: {"reasoning_effort": "low"}` per request to clamp further; only `xhigh`, `medium`, `low` are valid.
 - **Never use temperature 0** — greedy decoding produces unbounded thinking loops. Qwen3.8 thinking mode: temp 1.0 / top_p 0.95 / top_k 20 (the launcher sets these server-side).
 - Chain-of-thought arrives in **`reasoning_content`** on the llama.cpp production engine; the vLLM fallbacks use **`reasoning`** instead.
 - **Vision works on production** (base64 `image_url` — the mmproj loads by default; `FLASHNEXT_VISION=0` disables). Tool calling works as-is.

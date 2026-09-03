@@ -3,6 +3,36 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-09-03 — Production switched to Uncensored-FP8; reasoning effort now `medium`
+
+Two changes, both live and verified on :5000.
+
+`production-engine.conf` now names `start-vllm-38-27b-uncensored-fp8.sh`:
+vLLM 0.27.1 serving `orcarouter/Qwen3.8-27B-Uncensored-FP8` (abliterated
+27B) at 262K context with MTP n=3 + FP8 KV, 16 seqs, ~86GB VRAM. Unlike
+the NVFP4 default it replaces, this checkpoint does vision as well as text.
+Healthy ~2 min after `systemctl restart`.
+
+Reasoning effort raised from `low` to `medium` on **every** launcher:
+
+- the three Qwen3.8 vLLM launchers pass
+  `--default-chat-template-kwargs '{"reasoning_effort":"medium"}'`
+- `start-llama-flashnext.sh` gained a server-side pin it never had:
+  llama.cpp's `--chat-template-kwargs '{"reasoning_effort":"medium"}'`
+- `clients/chat.py` and `clients/orchestrate.py` defaults follow the
+  server (they had been sending `low` explicitly, which would have
+  overridden it)
+
+Verified while writing this: the chat template accepts **only** `xhigh`,
+`medium`, `low` — `high` and `minimal` raise a template exception. The
+Flash-Next GGUF's embedded template is byte-identical to the 27B one, so
+its default is `xhigh`, not the "moderate" that README/BENCHMARKS claimed;
+those notes are corrected.
+
+The 2026-08-16 sweep that motivated `low` only compared `low` vs `xhigh`,
+so `medium`'s token/latency cost on this box is **not** measured — a
+`bench_effort.py` run would fill that gap.
+
 ## 2026-08-30 — Production switched back to NVFP4 (vLLM) for agent-fleet loads
 
 `production-engine.conf` now names `start-vllm-38-27b-nvfp4.sh` again:

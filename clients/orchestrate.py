@@ -40,7 +40,7 @@ def log(msg: str) -> None:
 # docs/BENCHMARKS.md). All roles default to low, matching the server-side
 # default set on 2026-08-26 (--default-chat-template-kwargs in the launchers).
 def chat(client: OpenAI, prompt: str, system: str | None = None,
-         effort: str = "low") -> str:
+         effort: str = "medium") -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -105,8 +105,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=3, help="number of parallel workers")
     ap.add_argument("--mode", choices=["decompose", "bestof"], default="decompose")
     ap.add_argument("--show-work", action="store_true", help="print plan and worker output")
-    ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="low",
-                    help="worker reasoning effort (planner/judge stay at low)")
+    ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="medium",
+                    help="worker reasoning effort (planner/judge stay at medium)")
     args = ap.parse_args()
 
     if args.mode == "bestof":

@@ -405,9 +405,13 @@ transformer + 51B PLE + (no MTP head in GGUF), 6B active/token, hybrid GDN
   p95 hits ~81s at N=8 (4 slots, prefill-blocking): a quality/long-context/
   single-user engine, **not** an agent-fleet engine (NVFP4: 676 agg @ N=16).
 - Vision works via mmproj (`FLASHNEXT_VISION=1`, +~1GB, 76.4GB total @262K).
-- Template default reasoning effort is moderate (unlike 27B's xhigh) but can
-  spike on creative tasks (11K thinking tokens observed once); per-request
-  `chat_template_kwargs {"reasoning_effort":"low"}` works ("minimal" 500s).
+- Reasoning effort spikes on creative tasks (11K thinking tokens observed
+  once); per-request `chat_template_kwargs {"reasoning_effort":"low"}` works
+  ("minimal" 500s). **Corrected 2026-09-03:** this note originally read that
+  the template default is "moderate" — it is not. The GGUF's embedded
+  template is byte-identical to the 27B one: default `xhigh`, and only
+  `xhigh`/`medium`/`low` are accepted. The launcher now pins `medium` via
+  llama.cpp's `--chat-template-kwargs`.
 - Cold load: IQ4_XS ~20s warm page cache, up to ~28min cold-from-disk (119GB
   Q4_K_M measured); budget minutes for first load after other models ran.
 - JSONLs: `benchmarks/results/flashnext-{iq4xs,q4km}-{agent,quality}.jsonl`.
