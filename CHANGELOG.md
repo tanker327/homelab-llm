@@ -3,6 +3,47 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-09-05 — Production switched to Flash-Next NVFP4 + INT4 PLE sidecar (vLLM, docker)
+
+`production-engine.conf` now names `start-vllm-flashnext-nvfp4-mtp.sh`: the
+177B `Qwen3.8-Flash-Next` served by vLLM from `primitive-ai/Qwen3.8-Flash-Next-NVFP4`
+(NVFP4 experts, BF16 tail) with the 51B PLE n-gram table supplied by
+`primitive-ai/Qwen3.8-Flash-Next-PLE-quant` `ples_int4` (32GB, 128 shards).
+262K ctx, no speculation, 64 seqs, ~90GB VRAM, healthy ~190-250s after restart.
+
+This replaces the llama.cpp IQ4_XS Flash-Next path for concurrency: 615 agg
+tok/s @ N=16 vs ~130 plateauing at N=4 (4.7x). It gives up vision (untested on
+this checkpoint) and abliteration; `start-llama-flashnext.sh` and
+`start-vllm-38-27b-uncensored-fp8.sh` remain one conf line away.
+
+### Host change: `vm.overcommit_memory` 0 -> 1 (REQUIRED)
+
+`/etc/sysctl.d/99-vllm-ple-overcommit.conf`. The PLE overlay creates the
+95.4GiB BF16 n-gram table as untouched virtual memory and stubs it out
+immediately; heuristic overcommit refuses any single allocation larger than
+RAM+swap (66GiB here), so the offload worker died with
+`can't allocate memory: you tried to allocate 102400491520 bytes` and systemd
+would crash-loop. Upstream never hits this — their reference host is 176GB.
+The launcher now checks the sysctl and refuses to start with a pointer to the
+fix rather than looping.
+
+### Engine runs in docker, not the vllm-venv
+
+The model requires the pinned `vllm/vllm-openai:qwen38-flash-next` image
+(PyPI vLLM is unsupported for this architecture), plus three mandatory
+bind-mounted `.py` overlays from the PLE-quant repo — the stock image's worker
+cannot read quantized PLE tables and silently falls back to the 95GB BF16 path.
+The launcher `docker rm -f`s a stale container and waits for VRAM to drain
+before starting, since systemd restarts otherwise race the dying container.
+
+### Reasoning effort: `xhigh` on this launcher only
+
+Deliberately different from every other launcher (which pin `medium`). `xhigh`
+is the chat template's own default. The 2026-08-16 sweep measured it at ~10x
+tokens / ~10-12x wall time with no coding pass-rate gain, but that was on the
+27B and has NOT been re-measured on this 177B MoE. `high` remains invalid
+(HTTP 400); only `xhigh`, `medium`, `low`.
+
 ## 2026-09-03 — Production switched to Uncensored-FP8; reasoning effort now `medium`
 
 Two changes, both live and verified on :5000.

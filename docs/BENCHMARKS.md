@@ -415,3 +415,80 @@ transformer + 51B PLE + (no MTP head in GGUF), 6B active/token, hybrid GDN
 - Cold load: IQ4_XS ~20s warm page cache, up to ~28min cold-from-disk (119GB
   Q4_K_M measured); budget minutes for first load after other models ran.
 - JSONLs: `benchmarks/results/flashnext-{iq4xs,q4km}-{agent,quality}.jsonl`.
+
+---
+
+# Addendum: Flash-Next on vLLM — NVFP4 + quantized PLE sidecar (2026-09-05)
+
+The llama.cpp IQ4_XS Flash-Next path plateaus at ~130 agg tok/s by N=4 and
+takes 10–25 min to cold-start. Root cause of the latter is **not** disk
+(measured 5.1 GB/s O_DIRECT on the SN850X — 97.5GB reads in ~19s) but the 51B
+BF16 PLE n-gram table being randomly accessed through mmap against only ~48GB
+of page cache on a 58GB host.
+
+Fix: `primitive-ai/Qwen3.8-Flash-Next-NVFP4` on vLLM with the INT4 PLE sidecar
+from `primitive-ai/Qwen3.8-Flash-Next-PLE-quant` (32GB, 128 shards). The table
+then fits page cache whole. Measured offload-worker RSS **6.1GB while serving**,
+not 95GB. Boot to `/health` 190–250s.
+
+## C (no MTP, 262K) vs D (MTP n=3, 131K)
+
+Same harness as everything above, `--workload agent` (12280 in / 2048 out).
+C: 3 runs per level. D: 19 runs at N=4 and N=8, 3 elsewhere.
+
+| N | C mean | D mean | D/C | C worst | D worst | worst TTFT p95 C → D |
+|---|---|---|---|---|---|---|
+| 1 | 89 | **189** | 2.14x | 85 | 173 | 0.9s → 0.9s |
+| 4 | 249 | **412** | 1.65x | 247 | **117** | 4.2s → 6.2s |
+| 8 | 405 | 397 | 0.98x | 402 | **190** | 7.0s → **71.2s** |
+| 16 | **615** | 480 | 0.78x | 612 | 444 | 14.1s → 56.0s |
+| 32 | 594 | — | | 590 | | |
+
+Speculative decoding helps only while one request owns the GPU: D wins 2.14x at
+N=1 and 1.65x at N=4, ties at N=8, and **loses 28% at N=16**. C peaks at N=16
+(615 agg, 4.7x the llama.cpp path) and holds to N=32.
+
+Quality smoke 10/10 on both. MTP acceptance 0.99 throughout. An earlier 9/10 on
+C was sampling flake at temp 1.0 (`json-extract`), which passed on re-run with
+identical weights.
+
+## Why the default is C: MTP collapses ~1 run in 5
+
+C: 15 runs, run-to-run spread **1.01–1.07x** at every level, zero collapses.
+D: **4 of 19 at N=4 and 4 of 19 at N=8** dropped to ~25% of nominal
+(124.7 agg / 36.4 decode vs ~500 / ~154), spread up to 2.65x.
+
+The signature is **decode-only** — prefill (5168 vs 5170 tok/s) and TTFT
+(3004 vs 3006 ms) are untouched. Power *rises* to 547–560W while the SM clock
+*falls* to 2685–2745MHz (normal: 415–486W at 2812–2827MHz).
+
+Ruled out, each with evidence:
+
+- **thermal** — `clocks_event_reasons` never active; one collapse at 78°C while
+  81–83°C runs were fine.
+- **PLE page-cache eviction** — `Cached` steady at 49GB, `pgmajfault` ~0/s
+  throughout a collapse.
+- **competing load** (`open-webui` points at :5000) — server completed 25 of the
+  28 requests the bench sent, max running 4 / max waiting 1. No foreign traffic.
+- **concurrency** — capping `--max-num-seqs` at 4 made it *worse* (2 of 4 runs
+  collapsed, vs 0 of 3 uncapped at the same level earlier).
+
+Root cause not identified; specific to the speculative path. D remains available
+via `FLASHNEXT_SPEC` + `FLASHNEXT_CTX=131072` and is the better choice for
+strictly single-stream use, where its 2.14x is real and a rare stall is tolerable.
+
+## Config gotchas found on this box
+
+- **`vm.overcommit_memory` must be 1.** Heuristic mode refuses the overlay's
+  lazy 95.4GiB allocation on any host under ~96GB RAM. See CHANGELOG 2026-09-05.
+- **MTP and 262K do not both fit in 96GB.** At util 0.92 KV needs 7.57GiB and
+  gets 3.45 (engine refuses to start, est. max len 100800); at 0.97 KV fits
+  (317,406 tok) but CUDA graph capture dies `Triton Error [CUDA]: out of memory`.
+  The card's "88,828 MiB at serve" is a no-speculation figure.
+- **`max_num_seqs` must clear the GDN/Mamba block count** (~200 at 262K, ~108 at
+  131K) or graph capture aborts. Default 1024 always fails.
+- **The three `.py` overlay mounts are mandatory** — `VLLM_PLE_QUANT_DIR` alone
+  is silently ignored and the 95GB BF16 path runs instead.
+- **Untested here: vision.** Text only. Use `start-llama-flashnext.sh` for images.
+
+Raw records: `benchmarks/results/flashnext-nvfp4-int4ple-*.jsonl`

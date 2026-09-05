@@ -1,0 +1,1 @@
+{"label": "flashnext-nvfp4-int4ple", "passed": 9, "results": {"code-rle": true, "code-merge-intervals": true, "code-semver": true, "code-flatten": true, "fmt-three-lines": true, "fmt-csv": true, "json-tool-call": true, "json-extract": false, "longctx-niah": true, "longctx-synth": true}, "ts": "2026-09-04T23:44:31"}
