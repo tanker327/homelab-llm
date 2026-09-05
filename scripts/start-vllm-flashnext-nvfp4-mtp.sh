@@ -110,7 +110,17 @@ fi
 SPEC_ARGS=()
 [ -n "$SPEC" ] && SPEC_ARGS=(--speculative-config "$SPEC")
 
-exec docker run --rm --gpus all --ipc=host \
+# systemd sends SIGTERM to this process on stop/restart. `docker run` forwards
+# it to the container's PID 1, but vLLM does not answer signals during its
+# ~250s startup, so systemd waited out TimeoutStopSec (90s), SIGKILLed the
+# docker CLI, and left the container alive holding ~90GB of VRAM - a restart
+# issued mid-startup burned a whole boot cycle (measured 2026-09-05: a restart
+# took 4m45s, 90s of it hung in stop-sigterm). Trapping TERM and stopping the
+# container by name makes teardown bounded and immediate instead.
+term() { docker stop -t 15 "$NAME" >/dev/null 2>&1 || true; }
+trap term TERM INT
+
+docker run --rm --gpus all --ipc=host \
   --name "$NAME" \
   -p "${PORT}:8000" \
   -v "$MODEL_DIR:/model:ro" \
@@ -132,4 +142,12 @@ exec docker run --rm --gpus all --ipc=host \
   "${SPEC_ARGS[@]}" \
   --enable-auto-tool-choice --tool-call-parser qwen3_coder \
   --reasoning-parser qwen3 \
-  --default-chat-template-kwargs '{"reasoning_effort":"xhigh"}'
+  --default-chat-template-kwargs '{"reasoning_effort":"xhigh"}' &
+
+DPID=$!
+set +e
+wait "$DPID"; rc=$?
+# `wait` returns >128 when interrupted by the trapped signal; wait out the
+# real exit so systemd sees the container actually gone.
+if [ "$rc" -gt 128 ]; then wait "$DPID" 2>/dev/null; rc=$?; fi
+exit "$rc"
