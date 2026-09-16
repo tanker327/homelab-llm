@@ -14,6 +14,8 @@ Local LLM inference on an RTX PRO 6000 Blackwell (96GB VRAM, SM120) exposing an 
 
 The former llama.cpp setups (two-model agent stack, single 27B/35B) remain as manual launchers — see [CLAUDE.md](./CLAUDE.md).
 
+**Second server (RTX 4090, 24GB):** everything for it lives in [rtx4090/](./rtx4090/README.md) — separate setup, launchers and systemd unit. None of the launchers above fit in 24GB.
+
 ## Quick Start
 
 ```bash

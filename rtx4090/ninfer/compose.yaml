@@ -1,0 +1,77 @@
+services:
+  ninfer:
+    image: ninfer-4090:sm89
+    container_name: ninfer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /opt/ninfer/models:/workspace/models:ro
+      - /opt/ninfer/slots:/workspace/slots
+      - /opt/ninfer/logs:/workspace/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stop_grace_period: 30s
+    # ninfer-serve rejects the --flag=value form ("unknown argument"), so every
+    # value is its own list item.
+    command:
+      - ninfer-serve
+      - models/qwen3_8_27b.ninfer
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      # --- context / KV (Profile A: full 262K, E8 4-bit KV, text only) ---
+      - --max-context
+      - "262144"
+      - --kv-capacity
+      - "262144"
+      - --kv-dtype
+      - rk4v4-e8
+      - --prefill-chunk
+      - "1024"
+      # --- speculative decoding ---
+      - --spec
+      - mtp
+      - --draft-tokens
+      - "3"
+      - --lm-head-draft
+      # --- serving / queue ---
+      - --max-concurrency
+      - "1"
+      - --max-pending-requests
+      - "16"
+      - --pending-timeout-ms
+      - "600000"
+      - --preserve-thinking
+      # --- session persistence ---
+      - --slot-save-path
+      - /workspace/slots
+      - --auto-save-evicted
+      # --- diagnostics ---
+      - --request-log-jsonl
+      - /workspace/logs/requests.jsonl
+      # --- Profile B: uncomment for vision ---
+      # - --vision
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - /opt/ninfer/open-webui:/app/backend/data
+    environment:
+      # Talk to NInfer over the compose network; OPENAI_API_KEY must be non-empty.
+      OPENAI_API_BASE_URL: http://ninfer:8080/v1
+      OPENAI_API_KEY: none
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_NAME: "Homelab LLM (RTX 4090)"
+    depends_on:
+      - ninfer

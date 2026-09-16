@@ -1,0 +1,15 @@
+[Unit]
+Description=llama.cpp API Server, RTX 4090 box (Qwen3.6-35B-A3B MXFP4 MoE, port 5000)
+After=network.target
+
+[Service]
+Type=simple
+User=tanker
+WorkingDirectory=/home/tanker/projects/work/homelab-llm
+# 24GB launcher set lives in rtx4090/scripts; the root scripts/ need 96GB.
+ExecStart=/home/tanker/projects/work/homelab-llm/rtx4090/scripts/start-llama-35b-moe.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

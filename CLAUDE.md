@@ -14,6 +14,7 @@ Local LLM inference server on an RTX PRO 6000 Blackwell (96GB VRAM, SM120, CUDA 
 - `benchmarks/` — `bench_serving.py` (main harness), `quality_smoke.py`, `bench_effort.py` (reasoning-effort sweep), `bench_matrix.py`, `bench_concurrency.py`, `results/` (bake-off record)
 - `tools/` — `probe_max_input.py`, `test_ctx*.py`
 - `docs/` — `API.md`, `CONCURRENCY.md`, `BENCHMARKS.md`
+- `rtx4090/` — **the second server (RTX 4090, 24GB)**: its own README, `scripts/` (setup + 24GB llama.cpp launchers), `systemd/` unit, `docs/`, and `ninfer/` (what actually runs there since 2026-09-16: NInfer + Qwen3.8-27B in Docker on :8080, 262K ctx, MTP). Nothing in the root `scripts/` fits on that box; use `rtx4090/` there and leave the root alone.
 - `CHANGELOG.md` — system-level change record (systemd, firewall, host config)
 - `llama.cpp/`, `models/`, `venv/`, `vllm-venv/`, `sglang-venv/`, `toolchain-fix/` — git-ignored, stay at repo root
 
