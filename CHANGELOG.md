@@ -3,6 +3,23 @@
 System-level changes to the inference server (host config, systemd, firewall)
 are recorded here — code changes are tracked by git history (`git log`).
 
+## 2026-10-09 — NVIDIA driver module installed for kernel 7.0.0-38 (outage fix)
+
+First reboot since 2026-08-09 brought the box up on kernel 7.0.0-38
+(auto-installed by unattended-upgrades 2026-10-07). No NVIDIA module existed
+for that kernel — `linux-modules-nvidia-595-server-open-generic` was still
+pinned at 7.0.0-31 and the per-kernel package had not been pulled in — so
+`nvidia-smi` could not reach the driver and `llama-server` crash-looped
+(launcher exit 9, 240+ restarts) for ~1h.
+
+Fix: `apt install linux-modules-nvidia-595-server-open-7.0.0-38-generic`,
+`modprobe nvidia`; systemd's restart loop picked it up and `/health` was 200
+~95s later (warm page cache). Driver is now 595.91.07 (was 595.71.05). No
+DKMS on this host, so nothing rebuilds the driver automatically on a kernel
+bump — check `lsmod | grep nvidia` and
+`find /lib/modules/$(uname -r) -name 'nvidia*.ko*'` first whenever the
+service is down after a reboot.
+
 ## 2026-09-05 — Production switched to Flash-Next NVFP4 + INT4 PLE sidecar (vLLM, docker)
 
 `production-engine.conf` now names `start-vllm-flashnext-nvfp4-mtp.sh`: the
